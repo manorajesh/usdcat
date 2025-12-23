@@ -11,7 +11,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -mcpu=native -DNDEBUG")
 
 # Additional warnings and optimizations
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
@@ -25,7 +25,11 @@ find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(Curses REQUIRED)
 
 # Add executable
-add_executable(usdcat main.cpp)
+add_executable(usdcat 
+    src/main.cpp
+    src/screen.cpp
+    src/renderer.cpp
+)
 
 # Link libraries
 target_link_libraries(usdcat 
@@ -35,5 +39,6 @@ target_link_libraries(usdcat
 
 # Include directories
 target_include_directories(usdcat PRIVATE 
+    ${CMAKE_SOURCE_DIR}/include
     ${CURSES_INCLUDE_DIRS}
 )
