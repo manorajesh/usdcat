@@ -1,5 +1,7 @@
 # usdcat
 
+[![Build](https://github.com/manorajesh/usdcat/actions/workflows/build.yml/badge.svg)](https://github.com/manorajesh/usdcat/actions/workflows/build.yml)
+
 A lightweight C++ terminal-based viewer for USD (Universal Scene Description) scenes. Renders USD files as ASCII/Unicode art directly in your terminal.
 
 ## Features
