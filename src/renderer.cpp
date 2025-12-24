@@ -109,14 +109,9 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
 }
 
 void Renderer::display_framebuffer() {
-  screen.erase();
-
   for (int row = 0; row < dims.y(); ++row) {
     screen.add_string(row, 0, &framebuffer[row * dims.x()], dims.x());
   }
-
-  screen.add_string(dims.y(), 0, "Arrows: orbit | w/s: zoom | q: quit");
-  screen.refresh();
 }
 
 // private functions ---------------------------------------------

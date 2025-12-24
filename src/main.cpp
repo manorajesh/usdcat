@@ -14,7 +14,13 @@ int main() {
     renderer.screen.erase();
     renderer.screen.get_dims(h, w);
 
-    char c = renderer.screen.wgetch();
+    renderer.update_framebuffer({w, h}, yaw, pitch, radius);
+    renderer.display_framebuffer();
+
+    renderer.screen.add_string(h - 1, 0, "Arrows: orbit | w/s: zoom | q: quit");
+    renderer.screen.refresh();
+
+    int c = renderer.screen.wgetch();
 
     switch (c) {
     case 'q':
@@ -41,10 +47,6 @@ int main() {
     default:
       break;
     }
-
-    renderer.update_framebuffer({w, h}, yaw, pitch, radius);
-    renderer.display_framebuffer();
-    renderer.screen.refresh();
   }
 
   return 0;

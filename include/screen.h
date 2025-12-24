@@ -11,7 +11,4 @@ public:
   void erase();
   void refresh();
   int wgetch();
-
-private:
-  WINDOW *scr = stdscr;
 };
