@@ -42,3 +42,11 @@ target_include_directories(usdcat PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CURSES_INCLUDE_DIRS}
 )
+
+# Generate dSYM file on macOS
+if(APPLE)
+    add_custom_command(TARGET usdcat POST_BUILD
+        COMMAND dsymutil $<TARGET_FILE:usdcat>
+        COMMENT "Generating dSYM file for usdcat"
+    )
+endif()
