@@ -11,7 +11,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -mcpu=native -DNDEBUG -funroll-loops -ffast-math -flto")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -mcpu=native -DNDEBUG -funroll-loops -flto")
 
 # Additional warnings and optimizations
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
