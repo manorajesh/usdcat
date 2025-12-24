@@ -3,7 +3,6 @@
 #include <chrono>
 
 int main() {
-  getchar(); // Wait here so you can attach Instruments
   Renderer renderer;
 
   int w{0}, h{0};

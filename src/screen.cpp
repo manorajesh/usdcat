@@ -7,6 +7,7 @@ Screen::Screen() {
   noecho();
   keypad(stdscr, TRUE);
   curs_set(0);
+  timeout(0);
 
   start_color();
   init_pair(1, COLOR_WHITE, COLOR_BLACK);
@@ -21,5 +22,8 @@ void Screen::add_string(int y, int x, const char *str, int n) {
 }
 void Screen::get_dims(int &h, int &w) { getmaxyx(stdscr, h, w); }
 void Screen::erase() { ::erase(); }
-void Screen::refresh() { ::refresh(); }
+void Screen::refresh() {
+  wnoutrefresh(stdscr); // Copy to virtual screen without refresh
+  doupdate();           // Single efficient update
+}
 int Screen::wgetch() { return ::getch(); }

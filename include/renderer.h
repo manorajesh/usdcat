@@ -2,7 +2,6 @@
 #include "screen.h"
 #include <Eigen/Dense>
 #include <optional>
-#include <tuple>
 #include <vector>
 
 class Renderer {
