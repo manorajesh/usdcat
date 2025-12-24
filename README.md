@@ -33,6 +33,20 @@ make
 ./build/usdcat <scene.usd>
 ```
 
+## Debug
+
+To enable debugging with symbol information on MacOS, ensure that the debug symbols in the executable and the dSYM bundle match. You can verify this using the following commands:
+
+```bash
+# generate one if missing
+dsymutil ./usdcat -o ./usdcat.dSYM
+
+# verify UUIDs match (they MUST match)
+dwarfdump --uuid ./usdcat ./usdcat.dSYM
+```
+
+Profile in Instruments for example by attaching to a running process.
+
 ### Controls
 
 - Arrow keys: Rotate camera
