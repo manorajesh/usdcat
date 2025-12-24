@@ -138,8 +138,8 @@ void Renderer::look_at(Eigen::Vector3f up) {
   fneg = -f;
 }
 
-std::optional<Eigen::Vector3f> Renderer::project(Eigen::Vector3f p_view,
-                                                 float fov_y, float aspect) {
+inline std::optional<Eigen::Vector3f>
+Renderer::project(Eigen::Vector3f p_view, float fov_y, float aspect) {
   if (p_view.z() > -1e-6) {
     return {};
   }
@@ -150,7 +150,7 @@ std::optional<Eigen::Vector3f> Renderer::project(Eigen::Vector3f p_view,
   return Eigen::Vector3f(ndc_x, ndc_y, -p_view.z()); // positive depth
 }
 
-Eigen::Vector2f Renderer::to_screen(Eigen::Vector2f ndc) {
+inline Eigen::Vector2f Renderer::to_screen(Eigen::Vector2f ndc) {
   float sx = (ndc.x() * 0.5 + 0.5) * (dims.x() - 1);
   float sy = (-ndc.y() * 0.5 + 0.5) * (dims.y() - 1);
   return Eigen::Vector2f(sx, sy);
@@ -178,7 +178,7 @@ Renderer::barycentric(const Eigen::Vector2f &p, const Eigen::Vector2f &a,
   return Eigen::Vector3f(u, v, w);
 }
 
-Eigen::Vector3f Renderer::world_to_view(Eigen::Vector3f p) {
+inline Eigen::Vector3f Renderer::world_to_view(Eigen::Vector3f p) {
   Eigen::Vector3f pe = p - eye;
   return Eigen::Vector3f(pe.dot(r), pe.dot(u), pe.dot(fneg));
 }
