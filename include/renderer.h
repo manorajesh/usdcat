@@ -42,12 +42,12 @@ private:
   std::optional<Eigen::Vector3f> project(Eigen::Vector3f p_view, float fov_y,
                                          float aspect);
 
-  Eigen::Vector2i to_screen(Eigen::Vector2f ndc);
+  Eigen::Vector2f to_screen(Eigen::Vector2f ndc);
 
-  std::optional<Eigen::Vector3f> barycentric(Eigen::Vector2f p,
-                                             Eigen::Vector2f a,
-                                             Eigen::Vector2f b,
-                                             Eigen::Vector2f c);
+  std::optional<Eigen::Vector3f> barycentric(const Eigen::Vector2f &p,
+                                             const Eigen::Vector2f &a,
+                                             const Eigen::Vector2f &b,
+                                             const Eigen::Vector2f &c);
 
   Eigen::Vector3f world_to_view(Eigen::Vector3f p);
 };

@@ -73,21 +73,22 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
     Eigen::Vector3f proj1 = *q1;
     Eigen::Vector3f proj2 = *q2;
 
-    Eigen::Vector2i s0 = to_screen(proj0.head<2>());
-    Eigen::Vector2i s1 = to_screen(proj1.head<2>());
-    Eigen::Vector2i s2 = to_screen(proj2.head<2>());
+    Eigen::Vector2f s0 = to_screen(proj0.head<2>());
+    Eigen::Vector2f s1 = to_screen(proj1.head<2>());
+    Eigen::Vector2f s2 = to_screen(proj2.head<2>());
 
-    int minx = std::max(0, std::min({s0.x(), s1.x(), s2.x()}));
-    int maxx = std::min(dims.x() - 1, std::max({s0.x(), s1.x(), s2.x()}));
-    int miny = std::max(0, std::min({s0.y(), s1.y(), s2.y()}));
-    int maxy = std::min(dims.y() - 1, std::max({s0.y(), s1.y(), s2.y()}));
+    int minx = std::max(0, std::min({(int)s0.x(), (int)s1.x(), (int)s2.x()}));
+    int maxx = std::min(dims.x() - 1,
+                        std::max({(int)s0.x(), (int)s1.x(), (int)s2.x()}));
+    int miny = std::max(0, std::min({(int)s0.y(), (int)s1.y(), (int)s2.y()}));
+    int maxy = std::min(dims.y() - 1,
+                        std::max({(int)s0.y(), (int)s1.y(), (int)s2.y()}));
 
     int idx = (int)(lambert * (RAMP_SIZE - 1) + 0.5);
     char ch = RAMP[std::max(0, std::min(RAMP_SIZE - 1, idx))];
     for (int py = miny; py <= maxy; ++py) {
       for (int px = minx; px <= maxx; ++px) {
-        auto bc_optional = barycentric({px + 0.5, py + 0.5}, s0.cast<float>(),
-                                       s1.cast<float>(), s2.cast<float>());
+        auto bc_optional = barycentric({px + 0.5f, py + 0.5f}, s0, s1, s2);
         if (!bc_optional)
           continue;
 
@@ -149,16 +150,15 @@ std::optional<Eigen::Vector3f> Renderer::project(Eigen::Vector3f p_view,
   return Eigen::Vector3f(ndc_x, ndc_y, -p_view.z()); // positive depth
 }
 
-Eigen::Vector2i Renderer::to_screen(Eigen::Vector2f ndc) {
-  int sx = (int)((ndc.x() * 0.5 + 0.5) * (dims.x() - 1));
-  int sy = (int)((-ndc.y() * 0.5 + 0.5) * (dims.y() - 1));
-  return Eigen::Vector2i(sx, sy);
+Eigen::Vector2f Renderer::to_screen(Eigen::Vector2f ndc) {
+  float sx = (ndc.x() * 0.5 + 0.5) * (dims.x() - 1);
+  float sy = (-ndc.y() * 0.5 + 0.5) * (dims.y() - 1);
+  return Eigen::Vector2f(sx, sy);
 }
 
-std::optional<Eigen::Vector3f> Renderer::barycentric(Eigen::Vector2f p,
-                                                     Eigen::Vector2f a,
-                                                     Eigen::Vector2f b,
-                                                     Eigen::Vector2f c) {
+inline std::optional<Eigen::Vector3f>
+Renderer::barycentric(const Eigen::Vector2f &p, const Eigen::Vector2f &a,
+                      const Eigen::Vector2f &b, const Eigen::Vector2f &c) {
   Eigen::Vector2f v0 = b - a;
   Eigen::Vector2f v1 = c - a;
   Eigen::Vector2f v2 = p - a;
