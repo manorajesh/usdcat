@@ -1,10 +1,14 @@
 #pragma once
-#include <curses.h>
+#include <ncurses.h>
 #include <string>
 
 class Screen {
+private:
+  WINDOW *window;
+  bool owns_stdscr;
+
 public:
-  Screen();
+  Screen(WINDOW *win = nullptr);
   ~Screen();
 
   void add_string(int y, int x, const char *str, int n);
