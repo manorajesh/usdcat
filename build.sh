@@ -17,10 +17,16 @@ for arg in "$@"; do
             BUILD_DIR="build/release"
             shift
             ;;
+        --relwithdebinfo)
+            BUILD_TYPE="RelWithDebInfo"
+            BUILD_DIR="build/relwithdebinfo"
+            shift
+            ;;
         --help|-h)
-            echo "Usage: $0 [--release]"
-            echo "  (no args)   Build in debug mode"
-            echo "  --release   Build in release mode"
+            echo "Usage: $0 [--release] [--relwithdebinfo]"
+            echo "  (no args)        Build in debug mode"
+            echo "  --release        Build in release mode"
+            echo "  --relwithdebinfo Build in release mode with debug info"
             exit 0
             ;;
     esac

@@ -20,6 +20,12 @@ for arg in "$@"; do
             RELEASE_FLAG="--release"
             shift
             ;;
+        --relwithdebinfo)
+            BUILD_TYPE="RelWithDebInfo"
+            BUILD_DIR="build/relwithdebinfo"
+            RELEASE_FLAG="--relwithdebinfo"
+            shift
+            ;;
         *)
             RUN_ARGS+=("$arg")
             ;;
