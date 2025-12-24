@@ -1,3 +1,4 @@
+#pragma once
 #include "screen.h"
 #include <Eigen/Dense>
 #include <optional>
