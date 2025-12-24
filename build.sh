@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Cargo-style build script for CMake
+# Usage: ./build.sh          # debug build (like cargo build)
+#        ./build.sh --release # release build (like cargo build --release)
+
+set -e
+
+BUILD_TYPE="Debug"
+BUILD_DIR="build/debug"
+
+# Parse arguments
+for arg in "$@"; do
+    case $arg in
+        --release|-r)
+            BUILD_TYPE="Release"
+            BUILD_DIR="build/release"
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: $0 [--release]"
+            echo "  (no args)   Build in debug mode"
+            echo "  --release   Build in release mode"
+            exit 0
+            ;;
+    esac
+done
+
+echo "Building usdcat in ${BUILD_TYPE} mode..."
+echo "Build directory: ${BUILD_DIR}"
+
+# Create build directory if it doesn't exist
+mkdir -p "${BUILD_DIR}"
+
+# Configure and build
+cd "${BUILD_DIR}"
+cmake -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" ../..
+cmake --build . -j$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
+echo ""
+echo "✓ Build complete: ${BUILD_DIR}/usdcat"
