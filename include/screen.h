@@ -5,8 +5,13 @@ public:
   Screen();
   ~Screen();
 
-  void addString(int y, int x, const char *str);
-  void clear();
+  void add_string(int y, int x, const char *str, int n);
+  void add_string(int y, int x, const char *str);
+  void get_dims(int &h, int &w);
+  void erase();
   void refresh();
   int wgetch();
+
+private:
+  WINDOW *scr = stdscr;
 };
