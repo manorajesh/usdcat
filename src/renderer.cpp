@@ -110,21 +110,29 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
 }
 
 void Renderer::display_framebuffer() {
+  if (previous_framebuffer.size() != framebuffer.size()) {
+    screen.erase();
+    previous_framebuffer.assign(framebuffer.size(), '\0');
+  }
+
   for (int row = 0; row < dims.y(); ++row) {
     int row_offset = row * dims.x();
     for (int col = 0; col < dims.x();) {
-      if (framebuffer[row_offset + col] == ' ') {
+      if (framebuffer[row_offset + col] ==
+          previous_framebuffer[row_offset + col]) {
         col++;
         continue;
       }
       int start = col;
-      while (col < dims.x() && framebuffer[row_offset + col] != ' ') {
+      while (col < dims.x() && framebuffer[row_offset + col] !=
+                                   previous_framebuffer[row_offset + col]) {
         col++;
       }
       screen.add_string(row, start, &framebuffer[row_offset + start],
                         col - start);
     }
   }
+  std::swap(previous_framebuffer, framebuffer);
 }
 
 // private functions ---------------------------------------------

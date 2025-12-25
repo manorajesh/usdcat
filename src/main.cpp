@@ -14,17 +14,16 @@ int main() {
   bool running = true;
   while (running) {
     auto frame_start = std::chrono::high_resolution_clock::now();
-    renderer.screen.erase();
     renderer.screen.get_dims(h, w);
 
     renderer.update_framebuffer({w, h}, yaw, pitch, radius);
     renderer.display_framebuffer();
 
-    renderer.screen.add_string(
-        h - 2, 0,
+    std::string fps_text =
         "Frame Time: " + std::to_string(frame_time_ms) + "ms (" +
-            std::to_string(static_cast<int>(1000.0f / frame_time_ms)) +
-            " FPS)");
+        std::to_string(static_cast<int>(1000.0f / frame_time_ms)) + " FPS)";
+    fps_text.resize(50, ' ');
+    renderer.screen.add_string(h - 2, 0, fps_text);
     renderer.screen.add_string(h - 1, 0, "Arrows: orbit | w/s: zoom | q: quit");
     renderer.screen.refresh();
 

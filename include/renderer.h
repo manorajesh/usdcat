@@ -19,6 +19,7 @@ public:
 private:
   // display variables
   std::vector<char> framebuffer;
+  std::vector<char> previous_framebuffer;
   std::vector<float> zbuffer;
 
   // render calculation variables
