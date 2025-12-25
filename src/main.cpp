@@ -9,7 +9,7 @@ int main() {
   float yaw = 0.0;
   float pitch = 0.2;
   float radius = 4.0;
-  float frame_time_ms = 0.0f;
+  float frame_time_micos = 0.0f;
 
   bool running = true;
   while (running) {
@@ -20,8 +20,8 @@ int main() {
     renderer.display_framebuffer();
 
     std::string fps_text =
-        "Frame Time: " + std::to_string(frame_time_ms) + "ms (" +
-        std::to_string(static_cast<int>(1000.0f / frame_time_ms)) + " FPS)";
+        "Frame Time: " + std::to_string(frame_time_micos) + "μs (" +
+        std::to_string(static_cast<int>(1e6f / frame_time_micos)) + " FPS)";
     fps_text.resize(50, ' ');
     renderer.screen.add_string(h - 2, 0, fps_text);
     renderer.screen.add_string(h - 1, 0, "Arrows: orbit | w/s: zoom | q: quit");
@@ -56,8 +56,8 @@ int main() {
     }
 
     auto frame_end = std::chrono::high_resolution_clock::now();
-    frame_time_ms =
-        std::chrono::duration<float, std::milli>(frame_end - frame_start)
+    frame_time_micos =
+        std::chrono::duration<float, std::micro>(frame_end - frame_start)
             .count();
   }
 
