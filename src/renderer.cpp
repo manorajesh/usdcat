@@ -1,30 +1,6 @@
 #include "renderer.h"
 #include <algorithm>
 
-constexpr const char RAMP[] =
-    " .`^\",:;Il!i~+_-?][}{1)(|\\/*tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
-
-// Get length at compile time
-constexpr int RAMP_SIZE = sizeof(RAMP) - 1;
-
-// 8 vertices of a cube
-const std::vector<Eigen::Vector3f> V = {
-    {-1, -1, -1}, {1, -1, -1}, {1, 1, -1}, {-1, 1, -1},
-    {-1, -1, 1},  {1, -1, 1},  {1, 1, 1},  {-1, 1, 1},
-};
-
-// 12 triangles (indices into V)
-const std::vector<Eigen::Vector3i> TRIS = {
-    {0, 1, 2}, {0, 2, 3}, // back
-    {4, 6, 5}, {4, 7, 6}, // front
-    {0, 4, 5}, {0, 5, 1}, // bottom
-    {3, 2, 6}, {3, 6, 7}, // top
-    {0, 3, 7}, {0, 7, 4}, // left
-    {1, 5, 6}, {1, 6, 2}, // right
-};
-
-const float FOV = 1.0472f; // 60 degrees in radians
-
 // public functions ---------------------------------------------
 
 void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
@@ -43,10 +19,10 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
 
   Eigen::Vector3f light_dir = Eigen::Vector3f(0.4, 0.6, 0.2).normalized();
 
-  for (auto tri : TRIS) {
-    Eigen::Vector3f p0 = V[tri(0)];
-    Eigen::Vector3f p1 = V[tri(1)];
-    Eigen::Vector3f p2 = V[tri(2)];
+  for (auto tri : INDICES) {
+    Eigen::Vector3f p0 = VERTS[tri(0)];
+    Eigen::Vector3f p1 = VERTS[tri(1)];
+    Eigen::Vector3f p2 = VERTS[tri(2)];
 
     Eigen::Vector3f n = (p1 - p0).cross(p2 - p0).normalized();
     float lambert = std::max(0.0f, n.dot(light_dir));

@@ -6,7 +6,9 @@
 
 class Renderer {
 public:
-  Renderer() {}
+  Renderer(std::vector<Eigen::Vector3f> VERTS,
+           std::vector<Eigen::Vector3i> INDICES)
+      : VERTS(std::move(VERTS)), INDICES(std::move(INDICES)) {}
   ~Renderer() {}
 
   void update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
@@ -17,6 +19,15 @@ public:
   Screen screen{};
 
 private:
+  // character set
+  static constexpr const char RAMP[] =
+      " .`^\",:;Il!i~+_-?][}{1)(|\\/*tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+  static constexpr int RAMP_SIZE = sizeof(RAMP) - 1;
+
+  // geometry
+  const std::vector<Eigen::Vector3f> VERTS;
+  const std::vector<Eigen::Vector3i> INDICES;
+
   // display variables
   std::vector<char> framebuffer;
   std::vector<char> previous_framebuffer;
@@ -30,6 +41,7 @@ private:
   float yaw;
   float pitch;
   float radius;
+  static constexpr float FOV = 1.0472f; // 60 degrees in radians
 
   Eigen::Vector3f r;
   Eigen::Vector3f u;

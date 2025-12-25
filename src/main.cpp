@@ -2,8 +2,24 @@
 #include <algorithm>
 #include <chrono>
 
+// 8 vertices of a cube
+const std::vector<Eigen::Vector3f> VERTS = {
+    {-1, -1, -1}, {1, -1, -1}, {1, 1, -1}, {-1, 1, -1},
+    {-1, -1, 1},  {1, -1, 1},  {1, 1, 1},  {-1, 1, 1},
+};
+
+// 12 triangles (indices into V)
+const std::vector<Eigen::Vector3i> INDICES = {
+    {0, 1, 2}, {0, 2, 3}, // back
+    {4, 6, 5}, {4, 7, 6}, // front
+    {0, 4, 5}, {0, 5, 1}, // bottom
+    {3, 2, 6}, {3, 6, 7}, // top
+    {0, 3, 7}, {0, 7, 4}, // left
+    {1, 5, 6}, {1, 6, 2}, // right
+};
+
 int main() {
-  Renderer renderer;
+  Renderer renderer(VERTS, INDICES);
 
   int w{0}, h{0};
   float yaw = 0.0;
