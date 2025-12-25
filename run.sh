@@ -9,6 +9,7 @@ set -e
 BUILD_TYPE="Debug"
 BUILD_DIR="build/debug"
 RELEASE_FLAG=""
+CLEAN_FLAG=""
 
 # Parse arguments
 RUN_ARGS=()
@@ -26,6 +27,10 @@ for arg in "$@"; do
             RELEASE_FLAG="--relwithdebinfo"
             shift
             ;;
+        --clean|-c)
+            CLEAN_FLAG="--clean"
+            shift
+            ;;
         *)
             RUN_ARGS+=("$arg")
             ;;
@@ -33,7 +38,7 @@ for arg in "$@"; do
 done
 
 # Build first
-./build.sh ${RELEASE_FLAG}
+./build.sh ${RELEASE_FLAG} ${CLEAN_FLAG}
 
 echo ""
 echo "Running ${BUILD_TYPE} build..."
