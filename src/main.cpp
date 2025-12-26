@@ -1,8 +1,13 @@
+#include "mesh_loader.h"
 #include "renderer.h"
+
 #include <algorithm>
 #include <chrono>
 #include <deque>
 #include <numeric>
+#include <pxr/usd/usd/primRange.h>
+#include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usdGeom/mesh.h>
 
 // 8 vertices of a cube
 const std::vector<Eigen::Vector3f> VERTS = {
@@ -21,7 +26,19 @@ const std::vector<Eigen::Vector3i> INDICES = {
 };
 
 int main() {
-  Renderer renderer(VERTS, INDICES);
+  Renderer renderer;
+
+  auto stage = pxr::UsdStage::Open("simple_primitives.usda");
+  for (const auto &prim : stage->Traverse()) {
+    if (prim.IsA<pxr::UsdGeomMesh>()) {
+      pxr::UsdGeomMesh usdMesh(prim);
+      MeshData data = MeshLoader::LoadUsdMesh(usdMesh);
+
+      // Now send to your renderer
+      // Assuming your renderer has a method to add mesh data
+      renderer.add_mesh(data.vertices, data.indices);
+    }
+  }
 
   int w{0}, h{0};
   float yaw = 0.0;

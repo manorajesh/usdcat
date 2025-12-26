@@ -24,23 +24,35 @@ find_package(Eigen3 REQUIRED NO_MODULE)
 # Find Curses
 find_package(Curses REQUIRED)
 
+find_package(OpenGL REQUIRED)
+
+# 1. Point CMake to your USD installation
+set(USD_ROOT "/opt/usd")
+list(APPEND CMAKE_PREFIX_PATH "${USD_ROOT}")
+
+# 2. Find the USD package (exported as 'pxr')
+find_package(pxr REQUIRED)
+
 # Add executable
 add_executable(usdcat 
     src/main.cpp
     src/screen.cpp
     src/renderer.cpp
+    src/mesh_loader.cpp
 )
 
 # Link libraries
 target_link_libraries(usdcat 
     Eigen3::Eigen
     ${CURSES_LIBRARIES}
+    ${PXR_LIBRARIES}
 )
 
 # Include directories
 target_include_directories(usdcat PRIVATE 
     ${CMAKE_SOURCE_DIR}/include
     ${CURSES_INCLUDE_DIRS}
+    ${PXR_INCLUDE_DIRS}
 )
 
 # Generate dSYM file on macOS

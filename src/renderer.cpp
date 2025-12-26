@@ -21,10 +21,10 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
 
   Eigen::Vector3f light_dir = Eigen::Vector3f(0.4, 0.6, 0.2).normalized();
 
-  for (auto tri : INDICES) {
-    Eigen::Vector3f p0 = VERTS[tri(0)];
-    Eigen::Vector3f p1 = VERTS[tri(1)];
-    Eigen::Vector3f p2 = VERTS[tri(2)];
+  for (auto tri : indices) {
+    Eigen::Vector3f p0 = verts[tri(0)];
+    Eigen::Vector3f p1 = verts[tri(1)];
+    Eigen::Vector3f p2 = verts[tri(2)];
 
     Eigen::Vector3f n = (p1 - p0).cross(p2 - p0).normalized();
     float lambert = std::max(0.0f, n.dot(light_dir));
@@ -38,7 +38,7 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
     // camera looks down -Z in view space, so facing camera means normal has
     // negative z in view
     Eigen::Vector3f n_view = (v1 - v0).cross(v2 - v0);
-    if (n_view.z() >= 0)
+    if (n_view.z() <= 0)
       continue;
 
     auto q0 = project(v0, FOV, aspect);
@@ -158,6 +158,18 @@ void Renderer::display_framebuffer() {
     }
   }
   std::swap(previous_framebuffer, framebuffer);
+}
+
+void Renderer::add_mesh(const std::vector<Eigen::Vector3f> &vertices,
+                        const std::vector<Eigen::Vector3i> &indices) {
+  int offset = this->verts.size();
+  for (const auto &v : vertices) {
+    this->verts.push_back(v);
+  }
+  for (const auto &idx : indices) {
+    this->indices.emplace_back(idx.x() + offset, idx.y() + offset,
+                               idx.z() + offset);
+  }
 }
 
 // private functions ---------------------------------------------

@@ -6,14 +6,18 @@
 
 class Renderer {
 public:
-  Renderer(std::vector<Eigen::Vector3f> VERTS,
-           std::vector<Eigen::Vector3i> INDICES)
-      : VERTS(std::move(VERTS)), INDICES(std::move(INDICES)) {}
+  Renderer(std::vector<Eigen::Vector3f> verts,
+           std::vector<Eigen::Vector3i> indices)
+      : verts(std::move(verts)), indices(std::move(indices)) {}
+
+  Renderer() {}
   ~Renderer() {}
 
   void update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
                           float radius);
   void display_framebuffer();
+  void add_mesh(const std::vector<Eigen::Vector3f> &vertices,
+                const std::vector<Eigen::Vector3i> &indices);
 
   // curses Screen
   Screen screen{};
@@ -21,12 +25,13 @@ public:
 private:
   // character set
   static constexpr const char RAMP[] =
-      " .`^\",:;Il!i~+_-?][}{1)(|\\/*tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+      " .`^\",:;Il!i~+_-?][}{1)(|\\/"
+      "*tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
   static constexpr int RAMP_SIZE = sizeof(RAMP) - 1;
 
   // geometry
-  const std::vector<Eigen::Vector3f> VERTS;
-  const std::vector<Eigen::Vector3i> INDICES;
+  std::vector<Eigen::Vector3f> verts;
+  std::vector<Eigen::Vector3i> indices;
 
   // display variables
   std::vector<char> framebuffer;
