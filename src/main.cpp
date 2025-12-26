@@ -1,6 +1,8 @@
 #include "renderer.h"
 #include <algorithm>
 #include <chrono>
+#include <deque>
+#include <numeric>
 
 // 8 vertices of a cube
 const std::vector<Eigen::Vector3f> VERTS = {
@@ -26,6 +28,7 @@ int main() {
   float pitch = 0.2;
   float radius = 4.0;
   float frame_time_micos = 0.0f;
+  std::deque<float> frame_times;
 
   bool running = true;
   while (running) {
@@ -72,9 +75,16 @@ int main() {
     }
 
     auto frame_end = std::chrono::high_resolution_clock::now();
-    frame_time_micos =
+    float current_frame_time =
         std::chrono::duration<float, std::micro>(frame_end - frame_start)
             .count();
+    frame_times.push_back(current_frame_time);
+    if (frame_times.size() > 100) {
+      frame_times.pop_front();
+    }
+    frame_time_micos =
+        std::accumulate(frame_times.begin(), frame_times.end(), 0.0f) /
+        frame_times.size();
   }
 
   return 0;
