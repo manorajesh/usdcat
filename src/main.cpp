@@ -1,4 +1,3 @@
-#include "mesh_loader.h"
 #include "renderer.h"
 
 #include <algorithm>
@@ -9,34 +8,16 @@
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usdGeom/mesh.h>
 
-// 8 vertices of a cube
-const std::vector<Eigen::Vector3f> VERTS = {
-    {-1, -1, -1}, {1, -1, -1}, {1, 1, -1}, {-1, 1, -1},
-    {-1, -1, 1},  {1, -1, 1},  {1, 1, 1},  {-1, 1, 1},
-};
-
-// 12 triangles (indices into V)
-const std::vector<Eigen::Vector3i> INDICES = {
-    {0, 1, 2}, {0, 2, 3}, // back
-    {4, 6, 5}, {4, 7, 6}, // front
-    {0, 4, 5}, {0, 5, 1}, // bottom
-    {3, 2, 6}, {3, 6, 7}, // top
-    {0, 3, 7}, {0, 7, 4}, // left
-    {1, 5, 6}, {1, 6, 2}, // right
-};
-
 int main() {
   Renderer renderer;
 
-  auto stage = pxr::UsdStage::Open("simple_primitives.usda");
+  auto stage = pxr::UsdStage::Open("cube.usda");
   for (const auto &prim : stage->Traverse()) {
     if (prim.IsA<pxr::UsdGeomMesh>()) {
       pxr::UsdGeomMesh usdMesh(prim);
       MeshData data = MeshLoader::LoadUsdMesh(usdMesh);
 
-      // Now send to your renderer
-      // Assuming your renderer has a method to add mesh data
-      renderer.add_mesh(data.vertices, data.indices);
+      renderer.add_mesh(data);
     }
   }
 

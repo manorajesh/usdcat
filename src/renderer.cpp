@@ -21,67 +21,69 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
 
   Eigen::Vector3f light_dir = Eigen::Vector3f(0.4, 0.6, 0.2).normalized();
 
-  for (auto tri : indices) {
-    Eigen::Vector3f p0 = verts[tri(0)];
-    Eigen::Vector3f p1 = verts[tri(1)];
-    Eigen::Vector3f p2 = verts[tri(2)];
+  for (auto m : meshes) {
+    for (auto tri : m.indices) {
+      Eigen::Vector3f p0 = m.vertices[tri(0)];
+      Eigen::Vector3f p1 = m.vertices[tri(1)];
+      Eigen::Vector3f p2 = m.vertices[tri(2)];
 
-    Eigen::Vector3f n = (p1 - p0).cross(p2 - p0).normalized();
-    float lambert = std::max(0.0f, n.dot(light_dir));
+      Eigen::Vector3f n = (p1 - p0).cross(p2 - p0).normalized();
+      float lambert = std::max(0.0f, n.dot(light_dir));
 
-    // backface culling
-    Eigen::Vector3f v0 = world_to_view(p0);
-    Eigen::Vector3f v1 = world_to_view(p1);
-    Eigen::Vector3f v2 = world_to_view(p2);
-    // compute signed area in screen-ish space later; cheap view-space cull:
-    // if normal points away from camera, skip
-    // camera looks down -Z in view space, so facing camera means normal has
-    // negative z in view
-    Eigen::Vector3f n_view = (v1 - v0).cross(v2 - v0);
-    if (n_view.z() <= 0)
-      continue;
+      // backface culling
+      Eigen::Vector3f v0 = world_to_view(p0);
+      Eigen::Vector3f v1 = world_to_view(p1);
+      Eigen::Vector3f v2 = world_to_view(p2);
+      // compute signed area in screen-ish space later; cheap view-space cull:
+      // if normal points away from camera, skip
+      // camera looks down -Z in view space, so facing camera means normal has
+      // negative z in view
+      Eigen::Vector3f n_view = (v1 - v0).cross(v2 - v0);
+      if (n_view.z() <= 0)
+        continue;
 
-    auto q0 = project(v0, FOV, aspect);
-    auto q1 = project(v1, FOV, aspect);
-    auto q2 = project(v2, FOV, aspect);
-    if (!q0 || !q1 || !q2)
-      continue;
+      auto q0 = project(v0, FOV, aspect);
+      auto q1 = project(v1, FOV, aspect);
+      auto q2 = project(v2, FOV, aspect);
+      if (!q0 || !q1 || !q2)
+        continue;
 
-    Eigen::Vector3f proj0 = *q0;
-    Eigen::Vector3f proj1 = *q1;
-    Eigen::Vector3f proj2 = *q2;
+      Eigen::Vector3f proj0 = *q0;
+      Eigen::Vector3f proj1 = *q1;
+      Eigen::Vector3f proj2 = *q2;
 
-    Eigen::Vector2f s0 = to_screen(proj0.head<2>());
-    Eigen::Vector2f s1 = to_screen(proj1.head<2>());
-    Eigen::Vector2f s2 = to_screen(proj2.head<2>());
+      Eigen::Vector2f s0 = to_screen(proj0.head<2>());
+      Eigen::Vector2f s1 = to_screen(proj1.head<2>());
+      Eigen::Vector2f s2 = to_screen(proj2.head<2>());
 
-    int minx = std::max(0, std::min({(int)s0.x(), (int)s1.x(), (int)s2.x()}));
-    int maxx = std::min(dims.x() - 1,
-                        std::max({(int)s0.x(), (int)s1.x(), (int)s2.x()}));
-    int miny = std::max(0, std::min({(int)s0.y(), (int)s1.y(), (int)s2.y()}));
-    int maxy = std::min(dims.y() - 1,
-                        std::max({(int)s0.y(), (int)s1.y(), (int)s2.y()}));
+      int minx = std::max(0, std::min({(int)s0.x(), (int)s1.x(), (int)s2.x()}));
+      int maxx = std::min(dims.x() - 1,
+                          std::max({(int)s0.x(), (int)s1.x(), (int)s2.x()}));
+      int miny = std::max(0, std::min({(int)s0.y(), (int)s1.y(), (int)s2.y()}));
+      int maxy = std::min(dims.y() - 1,
+                          std::max({(int)s0.y(), (int)s1.y(), (int)s2.y()}));
 
-    int idx = (int)(lambert * (RAMP_SIZE - 1) + 0.5);
-    char ch = RAMP[std::max(0, std::min(RAMP_SIZE - 1, idx))];
-    for (int py = miny; py <= maxy; ++py) {
-      for (int px = minx; px <= maxx; ++px) {
-        auto bc_optional = barycentric({px + 0.5f, py + 0.5f}, s0, s1, s2);
-        if (!bc_optional)
-          continue;
+      int idx = (int)(lambert * (RAMP_SIZE - 1) + 0.5);
+      char ch = RAMP[std::max(0, std::min(RAMP_SIZE - 1, idx))];
+      for (int py = miny; py <= maxy; ++py) {
+        for (int px = minx; px <= maxx; ++px) {
+          auto bc_optional = barycentric({px + 0.5f, py + 0.5f}, s0, s1, s2);
+          if (!bc_optional)
+            continue;
 
-        Eigen::Vector3f bc = *bc_optional;
+          Eigen::Vector3f bc = *bc_optional;
 
-        if (bc.x() < 0 || bc.y() < 0 || bc.z() < 0)
-          continue;
+          if (bc.x() < 0 || bc.y() < 0 || bc.z() < 0)
+            continue;
 
-        float depth =
-            bc.x() * proj0.z() + bc.y() * proj1.z() + bc.z() * proj2.z();
-        int k = py * dims.x() + px;
-        if (depth < zbuffer[k]) {
-          zbuffer[k] = depth;
-          framebuffer[k] = ch;
-          intensity_buffer[k] = lambert;
+          float depth =
+              bc.x() * proj0.z() + bc.y() * proj1.z() + bc.z() * proj2.z();
+          int k = py * dims.x() + px;
+          if (depth < zbuffer[k]) {
+            zbuffer[k] = depth;
+            framebuffer[k] = ch;
+            intensity_buffer[k] = lambert;
+          }
         }
       }
     }
@@ -158,18 +160,6 @@ void Renderer::display_framebuffer() {
     }
   }
   std::swap(previous_framebuffer, framebuffer);
-}
-
-void Renderer::add_mesh(const std::vector<Eigen::Vector3f> &vertices,
-                        const std::vector<Eigen::Vector3i> &indices) {
-  int offset = this->verts.size();
-  for (const auto &v : vertices) {
-    this->verts.push_back(v);
-  }
-  for (const auto &idx : indices) {
-    this->indices.emplace_back(idx.x() + offset, idx.y() + offset,
-                               idx.z() + offset);
-  }
 }
 
 // private functions ---------------------------------------------

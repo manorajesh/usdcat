@@ -1,30 +1,36 @@
-#include "mesh_loader.h"
+#include "mesh.h"
 #include <pxr/usd/usdGeom/xformable.h>
 
 MeshData MeshLoader::LoadUsdMesh(const pxr::UsdGeomMesh &usdMesh) {
   MeshData data;
 
-  // Get Transform
-  pxr::GfMatrix4d worldMatrix =
+  // 1. Get the Transform
+  pxr::GfMatrix4d usdWorldMat =
       usdMesh.ComputeLocalToWorldTransform(pxr::UsdTimeCode::Default());
+  Eigen::Matrix4f worldTransform =
+      Eigen::Map<Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(
+          usdWorldMat.GetArray())
+          .cast<float>();
 
-  // Convert to Eigen (transpose for column-vector convention)
-  Eigen::Matrix4f transform;
-  for (int i = 0; i < 4; ++i) {
-    for (int j = 0; j < 4; ++j) {
-      transform(i, j) = static_cast<float>(worldMatrix[j][i]);
-    }
-  }
-
-  // 1. Get Points (Vertices)
+  // 2. Get USD Points
   pxr::VtArray<pxr::GfVec3f> points;
   usdMesh.GetPointsAttr().Get(&points);
+  size_t numPoints = points.size();
 
-  for (const auto &p : points) {
-    Eigen::Vector4f v(p[0], p[1], p[2], 1.0f);
-    Eigen::Vector4f v_transformed = transform * v;
-    data.vertices.emplace_back(v_transformed.x(), v_transformed.y(),
-                               v_transformed.z());
+  // 3. Map the USD memory to an Eigen Matrix
+  // We treat the flat array of GfVec3f as a 3xN matrix
+  Eigen::Map<Eigen::Matrix<float, 3, Eigen::Dynamic>> lPos(
+      (float *)points.data(), 3, numPoints);
+
+  // 4. Transform everything at once
+  // We need 4xN for the math (to include the 'w' component for translation)
+  Eigen::Matrix<float, 4, Eigen::Dynamic> worldPos =
+      worldTransform * lPos.colwise().homogeneous();
+
+  // 5. Store back into your vector
+  data.vertices.resize(numPoints);
+  for (size_t i = 0; i < numPoints; ++i) {
+    data.vertices[i] = worldPos.block<3, 1>(0, i);
   }
 
   // 2. Get Topology (Face Counts and Indices)

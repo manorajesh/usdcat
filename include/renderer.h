@@ -1,4 +1,5 @@
 #pragma once
+#include "mesh.h"
 #include "screen.h"
 #include <Eigen/Dense>
 #include <optional>
@@ -6,18 +7,13 @@
 
 class Renderer {
 public:
-  Renderer(std::vector<Eigen::Vector3f> verts,
-           std::vector<Eigen::Vector3i> indices)
-      : verts(std::move(verts)), indices(std::move(indices)) {}
-
   Renderer() {}
   ~Renderer() {}
 
   void update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
                           float radius);
   void display_framebuffer();
-  void add_mesh(const std::vector<Eigen::Vector3f> &vertices,
-                const std::vector<Eigen::Vector3i> &indices);
+  void add_mesh(const MeshData &mesh) { meshes.push_back(mesh); }
 
   // curses Screen
   Screen screen{};
@@ -30,8 +26,7 @@ private:
   static constexpr int RAMP_SIZE = sizeof(RAMP) - 1;
 
   // geometry
-  std::vector<Eigen::Vector3f> verts;
-  std::vector<Eigen::Vector3i> indices;
+  std::vector<MeshData> meshes;
 
   // display variables
   std::vector<char> framebuffer;
