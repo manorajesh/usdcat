@@ -15,7 +15,8 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
   // update target and eye
   orbit_camera();
   look_at();
-  float aspect = (float)dims.x() / std::max(1.0f, (float)dims.y());
+  // Correct for non-square terminal characters (typically 1x2 ratio)
+  float aspect = 0.5f * (float)dims.x() / std::max(1.0f, (float)dims.y());
 
   Eigen::Vector3f light_dir = Eigen::Vector3f(0.4, 0.6, 0.2).normalized();
 
