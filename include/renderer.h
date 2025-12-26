@@ -32,6 +32,7 @@ private:
   std::vector<char> framebuffer;
   std::vector<char> previous_framebuffer;
   std::vector<float> zbuffer;
+  std::vector<float> intensity_buffer;
 
   // render calculation variables
   Eigen::Vector3f eye;

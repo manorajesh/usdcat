@@ -7,6 +7,7 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
                                   float radius) {
   framebuffer.assign(dims.x() * dims.y(), ' ');
   zbuffer.assign(dims.x() * dims.y(), std::numeric_limits<float>::infinity());
+  intensity_buffer.assign(dims.x() * dims.y(), -1.0f);
   this->dims = dims;
   this->yaw = yaw;
   this->pitch = pitch;
@@ -80,6 +81,53 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
         if (depth < zbuffer[k]) {
           zbuffer[k] = depth;
           framebuffer[k] = ch;
+          intensity_buffer[k] = lambert;
+        }
+      }
+    }
+  }
+
+  // Edge detection
+  for (int y = 1; y < dims.y() - 1; ++y) {
+    for (int x = 1; x < dims.x() - 1; ++x) {
+      int k = y * dims.x() + x;
+      if (intensity_buffer[k] < 0)
+        continue;
+
+      float gx = 0;
+      float gy = 0;
+
+      auto get_val = [&](int xx, int yy) {
+        return intensity_buffer[yy * dims.x() + xx];
+      };
+
+      // Sobel kernels
+      gx += -1 * get_val(x - 1, y - 1);
+      gx += 1 * get_val(x + 1, y - 1);
+      gx += -2 * get_val(x - 1, y);
+      gx += 2 * get_val(x + 1, y);
+      gx += -1 * get_val(x - 1, y + 1);
+      gx += 1 * get_val(x + 1, y + 1);
+
+      gy += -1 * get_val(x - 1, y - 1);
+      gy += -2 * get_val(x, y - 1);
+      gy += -1 * get_val(x + 1, y - 1);
+      gy += 1 * get_val(x - 1, y + 1);
+      gy += 2 * get_val(x, y + 1);
+      gy += 1 * get_val(x + 1, y + 1);
+
+      float g = std::sqrt(gx * gx + gy * gy);
+      if (g > 0.4f) {
+        if (std::abs(gx) > 2.5 * std::abs(gy)) {
+          framebuffer[k] = '|';
+        } else if (std::abs(gy) > 2.5 * std::abs(gx)) {
+          framebuffer[k] = '-';
+        } else {
+          if ((gx > 0 && gy > 0) || (gx < 0 && gy < 0)) {
+            framebuffer[k] = '/';
+          } else {
+            framebuffer[k] = '\\';
+          }
         }
       }
     }
