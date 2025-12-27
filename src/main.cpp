@@ -57,8 +57,7 @@ int main() {
   sceneDelegate.Populate(stage->GetPseudoRoot());
 
   pxr::HdRprimCollection collection(
-      pxr::HdTokens->geometry,
-      pxr::HdReprSelector(pxr::HdReprTokens->smoothHull));
+      pxr::HdTokens->geometry, pxr::HdReprSelector(pxr::HdReprTokens->refined));
 
   collection.SetRootPath(pxr::SdfPath::AbsoluteRootPath());
 

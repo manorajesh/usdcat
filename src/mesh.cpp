@@ -3,6 +3,7 @@
 #include "mesh.h"
 #include "renderer.h"
 #include <pxr/imaging/hd/meshTopology.h>
+#include <pxr/imaging/hd/meshUtil.h>
 #include <pxr/imaging/hd/renderIndex.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/usd/usdGeom/xformable.h>
@@ -48,29 +49,18 @@ void HdTerminalMesh::Sync(HdSceneDelegate *sceneDelegate,
   // 2. Update Topology
   if (isNew || (*dirtyBits & HdChangeTracker::DirtyTopology)) {
     HdMeshTopology topology = GetMeshTopology(sceneDelegate);
-    VtIntArray faceVertexCounts = topology.GetFaceVertexCounts();
-    VtIntArray faceVertexIndices = topology.GetFaceVertexIndices();
+    HdMeshUtil meshUtil(&topology, GetId());
+
+    VtVec3iArray triangulation;
+    VtIntArray primitiveParams; // We don't need this, but the API requires it
+
+    // This performs the triangulation for you based on the face counts
+    meshUtil.ComputeTriangleIndices(&triangulation, &primitiveParams);
 
     data.indices.clear();
-    int entryOffset = 0;
-
-    for (int numVerts : faceVertexCounts) {
-      if (numVerts == 3) {
-        // Standard Triangle
-        data.indices.emplace_back(faceVertexIndices[entryOffset],
-                                  faceVertexIndices[entryOffset + 1],
-                                  faceVertexIndices[entryOffset + 2]);
-      } else if (numVerts == 4) {
-        // Quad: Split into two triangles (0,1,2) and (0,2,3)
-        data.indices.emplace_back(faceVertexIndices[entryOffset],
-                                  faceVertexIndices[entryOffset + 1],
-                                  faceVertexIndices[entryOffset + 2]);
-        data.indices.emplace_back(faceVertexIndices[entryOffset],
-                                  faceVertexIndices[entryOffset + 2],
-                                  faceVertexIndices[entryOffset + 3]);
-      }
-      // Advance offset by the number of vertices in this face
-      entryOffset += numVerts;
+    for (const auto &tri : triangulation) {
+      // We emplace as Vector3i for your Renderer's MeshData struct
+      data.indices.emplace_back(tri[0], tri[1], tri[2]);
     }
   }
 
