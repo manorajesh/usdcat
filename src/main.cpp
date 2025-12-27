@@ -1,11 +1,9 @@
 #include "renderer.h"
 
 #include "delegate.h"
+#include "frame_timer.h"
 #include "render_task.h"
 #include <algorithm>
-#include <chrono>
-#include <deque>
-#include <numeric>
 #include <pxr/imaging/hd/engine.h>
 #include <pxr/imaging/hd/renderPass.h>
 #include <pxr/imaging/hd/task.h>
@@ -76,12 +74,11 @@ int main() {
   pxr::HdEngine engine;
 
   int w{0}, h{0};
-  float frame_time_micos = 0.0f;
-  std::deque<float> frame_times;
+  FrameTimer frametimer; // moving average over 100 frames by default
 
   bool running = true;
   while (running) {
-    auto frame_start = std::chrono::high_resolution_clock::now();
+    frametimer.start();
     renderer.screen.get_dims(h, w);
 
     // This will internally call renderPass->Sync() and renderPass->Execute()
@@ -92,8 +89,8 @@ int main() {
     // --------
 
     std::string fps_text =
-        "Frame Time: " + std::to_string(frame_time_micos) + "μs (" +
-        std::to_string(static_cast<int>(1e6f / frame_time_micos)) + " FPS)";
+        "Frame Time: " + std::to_string(frametimer.frame_time_micros()) +
+        "μs (" + std::to_string(frametimer.fps()) + " FPS)";
     fps_text.resize(50, ' ');
     renderer.screen.add_string(h - 2, 0, fps_text);
     renderer.screen.add_string(h - 1, 0, "Arrows: orbit | w/s: zoom | q: quit");
@@ -102,17 +99,7 @@ int main() {
     int c = renderer.screen.wgetch();
     handle_input(c, renderer, running);
 
-    auto frame_end = std::chrono::high_resolution_clock::now();
-    float current_frame_time =
-        std::chrono::duration<float, std::micro>(frame_end - frame_start)
-            .count();
-    frame_times.push_back(current_frame_time);
-    if (frame_times.size() > 100) {
-      frame_times.pop_front();
-    }
-    frame_time_micos =
-        std::accumulate(frame_times.begin(), frame_times.end(), 0.0f) /
-        frame_times.size();
+    frametimer.end();
   }
 
   return 0;

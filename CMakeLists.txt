@@ -41,6 +41,7 @@ add_executable(usdcat
     src/mesh.cpp
     src/delegate.cpp
     src/render_pass.cpp
+    src/frame_timer.cpp
 )
 
 # Link libraries
