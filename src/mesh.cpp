@@ -1,54 +1,88 @@
 #include "mesh.h"
+#include "delegate.h"
+#include "mesh.h"
+#include "renderer.h"
+#include <pxr/imaging/hd/meshTopology.h>
+#include <pxr/imaging/hd/renderIndex.h>
+#include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/usd/usdGeom/xformable.h>
 
-MeshData MeshLoader::LoadUsdMesh(const pxr::UsdGeomMesh &usdMesh) {
-  MeshData data;
+namespace pxr {
 
-  // 1. Get the Transform
-  pxr::GfMatrix4d usdWorldMat =
-      usdMesh.ComputeLocalToWorldTransform(pxr::UsdTimeCode::Default());
-  Eigen::Matrix4f worldTransform =
-      Eigen::Map<Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(
-          usdWorldMat.GetArray())
-          .cast<float>();
-
-  // 2. Get USD Points
-  pxr::VtArray<pxr::GfVec3f> points;
-  usdMesh.GetPointsAttr().Get(&points);
-  size_t numPoints = points.size();
-
-  // 3. Map the USD memory to an Eigen Matrix
-  // We treat the flat array of GfVec3f as a 3xN matrix
-  Eigen::Map<Eigen::Matrix<float, 3, Eigen::Dynamic>> lPos(
-      (float *)points.data(), 3, numPoints);
-
-  // 4. Transform everything at once
-  // We need 4xN for the math (to include the 'w' component for translation)
-  Eigen::Matrix<float, 4, Eigen::Dynamic> worldPos =
-      worldTransform * lPos.colwise().homogeneous();
-
-  // 5. Store back into your vector
-  data.vertices.resize(numPoints);
-  for (size_t i = 0; i < numPoints; ++i) {
-    data.vertices[i] = worldPos.block<3, 1>(0, i);
+void HdTerminalMesh::_InitRepr(TfToken const &reprToken,
+                               HdDirtyBits *dirtyBits) {
+  // This tells Hydra: "If we are drawing smoothHull, we need Points and
+  // Topology"
+  if (reprToken == HdReprTokens->smoothHull) {
+    *dirtyBits |= HdChangeTracker::DirtyPoints | HdChangeTracker::DirtyTopology;
   }
-
-  // 2. Get Topology (Face Counts and Indices)
-  pxr::VtIntArray counts, vertexIndices;
-  usdMesh.GetFaceVertexCountsAttr().Get(&counts);
-  usdMesh.GetFaceVertexIndicesAttr().Get(&vertexIndices);
-
-  // 3. Triangulate (Triangle Fan Method)
-  int indexOffset = 0;
-  for (int faceCount : counts) {
-    // A triangle needs at least 3 vertices
-    for (int i = 1; i < faceCount - 1; ++i) {
-      data.indices.emplace_back(vertexIndices[indexOffset],
-                                vertexIndices[indexOffset + i],
-                                vertexIndices[indexOffset + i + 1]);
-    }
-    indexOffset += faceCount;
-  }
-
-  return data;
 }
+
+void HdTerminalMesh::Sync(HdSceneDelegate *sceneDelegate,
+                          HdRenderParam *renderParam, HdDirtyBits *dirtyBits,
+                          TfToken const &reprToken) {
+  auto id = GetId();
+  HdRenderIndex &renderIndex = sceneDelegate->GetRenderIndex();
+  HdTerminalDelegate *delegate =
+      static_cast<HdTerminalDelegate *>(renderIndex.GetRenderDelegate());
+  Renderer *renderer = delegate->GetRenderer();
+
+  // Check if we already have this mesh in the renderer to handle initial load
+  bool isNew = renderer->get_meshes().find(id) == renderer->get_meshes().end();
+
+  // Use a local MeshData so we don't overwrite partial updates
+  MeshData &data = renderer->get_meshes()[id];
+
+  // 1. Update Points (or initial load)
+  if (isNew || (*dirtyBits & HdChangeTracker::DirtyPoints)) {
+    VtValue value = sceneDelegate->Get(id, HdTokens->points);
+    if (value.IsHolding<VtArray<GfVec3f>>()) {
+      const auto &points = value.UncheckedGet<VtArray<GfVec3f>>();
+      data.vertices.clear();
+      for (const auto &p : points) {
+        data.vertices.emplace_back(p[0], p[1], p[2]);
+      }
+    }
+  }
+
+  // 2. Update Topology
+  if (isNew || (*dirtyBits & HdChangeTracker::DirtyTopology)) {
+    HdMeshTopology topology = GetMeshTopology(sceneDelegate);
+    VtIntArray faceVertexCounts = topology.GetFaceVertexCounts();
+    VtIntArray faceVertexIndices = topology.GetFaceVertexIndices();
+
+    data.indices.clear();
+    int entryOffset = 0;
+
+    for (int numVerts : faceVertexCounts) {
+      if (numVerts == 3) {
+        // Standard Triangle
+        data.indices.emplace_back(faceVertexIndices[entryOffset],
+                                  faceVertexIndices[entryOffset + 1],
+                                  faceVertexIndices[entryOffset + 2]);
+      } else if (numVerts == 4) {
+        // Quad: Split into two triangles (0,1,2) and (0,2,3)
+        data.indices.emplace_back(faceVertexIndices[entryOffset],
+                                  faceVertexIndices[entryOffset + 1],
+                                  faceVertexIndices[entryOffset + 2]);
+        data.indices.emplace_back(faceVertexIndices[entryOffset],
+                                  faceVertexIndices[entryOffset + 2],
+                                  faceVertexIndices[entryOffset + 3]);
+      }
+      // Advance offset by the number of vertices in this face
+      entryOffset += numVerts;
+    }
+  }
+
+  // 3. Update Transform (or initial load)
+  if (isNew || (*dirtyBits & HdChangeTracker::DirtyTransform)) {
+    GfMatrix4d m = sceneDelegate->GetTransform(id);
+    for (int i = 0; i < 4; ++i)
+      for (int j = 0; j < 4; ++j)
+        data.worldTransform(i, j) = (float)m[j][i];
+  }
+
+  *dirtyBits = HdChangeTracker::Clean;
+}
+
+} // namespace pxr

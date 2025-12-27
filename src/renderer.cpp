@@ -21,11 +21,18 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
 
   Eigen::Vector3f light_dir = Eigen::Vector3f(0.4, 0.6, 0.2).normalized();
 
-  for (auto m : meshes) {
-    for (auto tri : m.indices) {
-      Eigen::Vector3f p0 = m.vertices[tri(0)];
-      Eigen::Vector3f p1 = m.vertices[tri(1)];
-      Eigen::Vector3f p2 = m.vertices[tri(2)];
+  for (auto const &[path, m] : meshes) {
+    for (auto const &tri : m.indices) {
+      // 1. Get Local Vertices
+      Eigen::Vector3f local0 = m.vertices[tri(0)];
+      Eigen::Vector3f local1 = m.vertices[tri(1)];
+      Eigen::Vector3f local2 = m.vertices[tri(2)];
+
+      // 2. Transform to WORLD Space using the matrix Hydra gave us
+      // We use .homogeneous() to multiply a 3f by a 4f matrix
+      Eigen::Vector3f p0 = (m.worldTransform * local0.homogeneous()).head<3>();
+      Eigen::Vector3f p1 = (m.worldTransform * local1.homogeneous()).head<3>();
+      Eigen::Vector3f p2 = (m.worldTransform * local2.homogeneous()).head<3>();
 
       Eigen::Vector3f n = (p1 - p0).cross(p2 - p0).normalized();
       float lambert = std::max(0.0f, n.dot(light_dir));

@@ -1,30 +1,81 @@
 #include "renderer.h"
 
+#include "delegate.h"
+#include "render_task.h"
 #include <algorithm>
 #include <chrono>
 #include <deque>
 #include <numeric>
+#include <pxr/imaging/hd/engine.h>
+#include <pxr/imaging/hd/renderPass.h>
+#include <pxr/imaging/hd/task.h>
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usdGeom/mesh.h>
+#include <pxr/usdImaging/usdImaging/delegate.h>
+
+void handle_input(int c, Renderer &renderer, bool &running) {
+  switch (c) {
+  case 'q':
+    running = false;
+    break;
+  case KEY_LEFT:
+    renderer.set_yaw(renderer.get_yaw() - 0.10f);
+    break;
+  case KEY_RIGHT:
+    renderer.set_yaw(renderer.get_yaw() + 0.10f);
+    break;
+  case KEY_UP:
+    renderer.set_pitch(renderer.get_pitch() + 0.08f);
+    break;
+  case KEY_DOWN:
+    renderer.set_pitch(renderer.get_pitch() - 0.08f);
+    break;
+  case 'w':
+    renderer.set_radius(std::max(1.0f, renderer.get_radius() - 0.3f));
+    break;
+  case 's':
+    renderer.set_radius(renderer.get_radius() + 0.3f);
+    break;
+  default:
+    break;
+  }
+}
 
 int main() {
   Renderer renderer;
 
-  auto stage = pxr::UsdStage::Open("cube.usda");
-  for (const auto &prim : stage->Traverse()) {
-    if (prim.IsA<pxr::UsdGeomMesh>()) {
-      pxr::UsdGeomMesh usdMesh(prim);
-      MeshData data = MeshLoader::LoadUsdMesh(usdMesh);
-
-      renderer.add_mesh(data);
-    }
+  auto stage = pxr::UsdStage::Open("simple_primitives.usda");
+  if (!stage) {
+    return -1;
   }
 
+  pxr::HdTerminalDelegate renderDelegate(&renderer);
+  pxr::HdRenderIndex *renderIndex =
+      pxr::HdRenderIndex::New(&renderDelegate, {});
+
+  pxr::UsdImagingDelegate sceneDelegate(renderIndex,
+                                        pxr::SdfPath::AbsoluteRootPath());
+  sceneDelegate.Populate(stage->GetPseudoRoot());
+
+  pxr::HdRprimCollection collection(
+      pxr::HdTokens->geometry,
+      pxr::HdReprSelector(pxr::HdReprTokens->smoothHull));
+
+  collection.SetRootPath(pxr::SdfPath::AbsoluteRootPath());
+
+  pxr::HdRenderPassSharedPtr renderPass =
+      renderDelegate.CreateRenderPass(renderIndex, collection);
+
+  pxr::SdfPath taskPath("/renderTask");
+  pxr::HdTaskSharedPtr renderTask =
+      std::make_shared<pxr::HdTerminalRenderTask>(renderPass, taskPath);
+
+  pxr::HdTaskSharedPtrVector tasks = {renderTask};
+
+  pxr::HdEngine engine;
+
   int w{0}, h{0};
-  float yaw = 0.0;
-  float pitch = 0.2;
-  float radius = 4.0;
   float frame_time_micos = 0.0f;
   std::deque<float> frame_times;
 
@@ -33,8 +84,12 @@ int main() {
     auto frame_start = std::chrono::high_resolution_clock::now();
     renderer.screen.get_dims(h, w);
 
-    renderer.update_framebuffer({w, h}, yaw, pitch, radius);
+    // This will internally call renderPass->Sync() and renderPass->Execute()
+    engine.Execute(renderIndex, &tasks);
+
     renderer.display_framebuffer();
+
+    // --------
 
     std::string fps_text =
         "Frame Time: " + std::to_string(frame_time_micos) + "μs (" +
@@ -45,32 +100,7 @@ int main() {
     renderer.screen.refresh();
 
     int c = renderer.screen.wgetch();
-
-    switch (c) {
-    case 'q':
-      running = false;
-      break;
-    case KEY_LEFT:
-      yaw -= 0.10f;
-      break;
-    case KEY_RIGHT:
-      yaw += 0.10f;
-      break;
-    case KEY_UP:
-      pitch += 0.08f;
-      break;
-    case KEY_DOWN:
-      pitch -= 0.08f;
-      break;
-    case 'w':
-      radius = std::max(2.0f, radius - 0.3f);
-      break;
-    case 's':
-      radius = std::min(20.0f, radius + 0.3f);
-      break;
-    default:
-      break;
-    }
+    handle_input(c, renderer, running);
 
     auto frame_end = std::chrono::high_resolution_clock::now();
     float current_frame_time =

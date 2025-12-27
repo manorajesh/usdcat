@@ -39,6 +39,8 @@ add_executable(usdcat
     src/screen.cpp
     src/renderer.cpp
     src/mesh.cpp
+    src/delegate.cpp
+    src/render_pass.cpp
 )
 
 # Link libraries
