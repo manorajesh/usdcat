@@ -4,3 +4,8 @@ env/
 .cache/
 .DS_Store
 *.trace
+
+*.usdz
+*.usda
+*.usdc
+*.usd

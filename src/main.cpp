@@ -40,10 +40,15 @@ void handle_input(int c, Renderer &renderer, bool &running) {
   }
 }
 
-int main() {
+int main(int argc, char **argv) {
+  if (argc < 2) {
+    printf("Usage: %s <path to usdz>\n", argv[0]);
+    return -1;
+  }
+
   Renderer renderer;
 
-  auto stage = pxr::UsdStage::Open("simple_primitives.usda");
+  auto stage = pxr::UsdStage::Open(argv[1]);
   if (!stage) {
     return -1;
   }
