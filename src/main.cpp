@@ -1,44 +1,16 @@
-#include "renderer.h"
-
+#include "camera_controller.h"
 #include "delegate.h"
 #include "frame_timer.h"
 #include "render_task.h"
-#include <algorithm>
+#include "renderer.h"
 #include <pxr/imaging/hd/engine.h>
 #include <pxr/imaging/hd/renderPass.h>
 #include <pxr/imaging/hd/task.h>
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usdGeom/camera.h>
 #include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usdImaging/usdImaging/delegate.h>
-
-void handle_input(int c, Renderer &renderer, bool &running) {
-  switch (c) {
-  case 'q':
-    running = false;
-    break;
-  case KEY_LEFT:
-    renderer.set_yaw(renderer.get_yaw() - 0.10f);
-    break;
-  case KEY_RIGHT:
-    renderer.set_yaw(renderer.get_yaw() + 0.10f);
-    break;
-  case KEY_UP:
-    renderer.set_pitch(renderer.get_pitch() + 0.08f);
-    break;
-  case KEY_DOWN:
-    renderer.set_pitch(renderer.get_pitch() - 0.08f);
-    break;
-  case 'w':
-    renderer.set_radius(std::max(1.0f, renderer.get_radius() - 0.3f));
-    break;
-  case 's':
-    renderer.set_radius(renderer.get_radius() + 0.3f);
-    break;
-  default:
-    break;
-  }
-}
 
 int main(int argc, char **argv) {
   if (argc < 2) {
@@ -53,6 +25,24 @@ int main(int argc, char **argv) {
     return -1;
   }
 
+  pxr::SdfPath cameraPath;
+  for (const auto &prim : stage->Traverse()) {
+    if (prim.IsA<pxr::UsdGeomCamera>()) {
+      cameraPath = prim.GetPath();
+      break;
+    }
+  }
+
+  if (cameraPath.IsEmpty()) {
+    pxr::UsdGeomCamera camera =
+        pxr::UsdGeomCamera::Define(stage, pxr::SdfPath("/Camera"));
+    cameraPath = camera.GetPath();
+  }
+
+  pxr::UsdGeomCamera camera(stage->GetPrimAtPath(cameraPath));
+  CameraController controller;
+  controller.apply_orbit(camera);
+
   pxr::HdTerminalDelegate renderDelegate(&renderer);
   pxr::HdRenderIndex *renderIndex =
       pxr::HdRenderIndex::New(&renderDelegate, {});
@@ -60,6 +50,7 @@ int main(int argc, char **argv) {
   pxr::UsdImagingDelegate sceneDelegate(renderIndex,
                                         pxr::SdfPath::AbsoluteRootPath());
   sceneDelegate.Populate(stage->GetPseudoRoot());
+  sceneDelegate.SetCameraForSampling(cameraPath);
 
   pxr::HdRprimCollection collection(
       pxr::HdTokens->geometry, pxr::HdReprSelector(pxr::HdReprTokens->refined));
@@ -70,8 +61,8 @@ int main(int argc, char **argv) {
       renderDelegate.CreateRenderPass(renderIndex, collection);
 
   pxr::SdfPath taskPath("/renderTask");
-  pxr::HdTaskSharedPtr renderTask =
-      std::make_shared<pxr::HdTerminalRenderTask>(renderPass, taskPath);
+  pxr::HdTaskSharedPtr renderTask = std::make_shared<pxr::HdTerminalRenderTask>(
+      renderPass, taskPath, renderIndex, cameraPath);
 
   pxr::HdTaskSharedPtrVector tasks = {renderTask};
 
@@ -80,12 +71,19 @@ int main(int argc, char **argv) {
   int w{0}, h{0};
   FrameTimer frametimer; // moving average over 100 frames by default
 
+  renderer.screen.get_dims(h, w);
+  engine.Execute(renderIndex, &tasks);
+  if (controller.frame_to_meshes(renderer, camera, w, h)) {
+    controller.apply_orbit(camera);
+    sceneDelegate.ApplyPendingUpdates();
+    engine.Execute(renderIndex, &tasks);
+  }
+
   bool running = true;
   while (running) {
     frametimer.start();
     renderer.screen.get_dims(h, w);
 
-    // This will internally call renderPass->Sync() and renderPass->Execute()
     engine.Execute(renderIndex, &tasks);
 
     renderer.display_framebuffer();
@@ -97,11 +95,14 @@ int main(int argc, char **argv) {
         "μs (" + std::to_string(frametimer.fps()) + " FPS)";
     fps_text.resize(50, ' ');
     renderer.screen.add_string(h - 2, 0, fps_text);
-    renderer.screen.add_string(h - 1, 0, "Arrows: orbit | w/s: zoom | q: quit");
+    renderer.screen.add_string(
+        h - 1, 0, "Arrows: orbit | w/s: zoom | f: frame | q: quit");
     renderer.screen.refresh();
 
     int c = renderer.screen.wgetch();
-    handle_input(c, renderer, running);
+    if (controller.handle_input(c, renderer, camera, w, h, running)) {
+      sceneDelegate.ApplyPendingUpdates();
+    }
 
     frametimer.end();
   }

@@ -2,6 +2,8 @@
 #include "mesh.h"
 #include "render_pass.h"
 #include "renderer.h"
+#include <pxr/imaging/hd/bprim.h>
+#include <pxr/imaging/hd/camera.h>
 
 namespace pxr {
 
@@ -29,10 +31,40 @@ HdTerminalDelegate::CreateRenderPass(HdRenderIndex *index,
 
 void HdTerminalDelegate::DestroyRprim(HdRprim *rPrim) { delete rPrim; }
 
-// Stubs for types we don't use yet
+HdSprim *HdTerminalDelegate::CreateSprim(TfToken const &typeId,
+                                         SdfPath const &primId) {
+  if (typeId == HdPrimTypeTokens->camera) {
+    return new HdCamera(primId);
+  }
+  return nullptr;
+}
+
+HdSprim *HdTerminalDelegate::CreateFallbackSprim(TfToken const &typeId) {
+  if (typeId == HdPrimTypeTokens->camera) {
+    return new HdCamera(SdfPath::EmptyPath());
+  }
+  return nullptr;
+}
+
+void HdTerminalDelegate::DestroySprim(HdSprim *sprim) { delete sprim; }
+
+HdBprim *HdTerminalDelegate::CreateBprim(TfToken const &typeId,
+                                         SdfPath const &primId) {
+  (void)typeId;
+  (void)primId;
+  return nullptr;
+}
+
+HdBprim *HdTerminalDelegate::CreateFallbackBprim(TfToken const &typeId) {
+  (void)typeId;
+  return nullptr;
+}
+
+void HdTerminalDelegate::DestroyBprim(HdBprim *bprim) { delete bprim; }
+
 const TfTokenVector &HdTerminalDelegate::GetSupportedSprimTypes() const {
-  static TfTokenVector v;
-  return v;
+  static const TfTokenVector sprims = {HdPrimTypeTokens->camera};
+  return sprims;
 }
 const TfTokenVector &HdTerminalDelegate::GetSupportedBprimTypes() const {
   static TfTokenVector v;

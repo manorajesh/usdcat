@@ -4,6 +4,7 @@
 #include <Eigen/Dense>
 #include <map>
 #include <optional>
+#include <pxr/base/gf/matrix4d.h>
 #include <pxr/usd/sdf/path.h>
 #include <vector>
 
@@ -35,11 +36,15 @@ public:
   float get_radius() const { return radius; }
 
   std::map<pxr::SdfPath, MeshData> &get_meshes() { return meshes; }
+  const std::map<pxr::SdfPath, MeshData> &get_meshes() const { return meshes; }
 
   void frame_scene_to_view(Eigen::Vector2i dims);
 
   void set_target(const Eigen::Vector3f &t) { target = t; }
   Eigen::Vector3f get_target() const { return target; }
+
+  void set_hydra_camera(const pxr::GfMatrix4d &world_to_view, float fov_y);
+  void clear_hydra_camera();
 
   // curses Screen
   Screen screen{};
@@ -69,10 +74,13 @@ private:
   float pitch = 0.2f;
   float radius = 4.0f;
   static constexpr float FOV = 1.0472f; // 60 degrees in radians
+  float hydra_fov_y = FOV;
+  bool has_hydra_camera = false;
 
   Eigen::Vector3f r;
   Eigen::Vector3f u;
   Eigen::Vector3f fneg;
+  Eigen::Matrix4f view_matrix = Eigen::Matrix4f::Identity();
 
   // render functions
   void orbit_camera();

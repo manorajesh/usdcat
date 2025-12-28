@@ -41,6 +41,7 @@ find_package(pxr REQUIRED)
 # Add executable
 add_executable(usdcat 
     src/main.cpp
+    src/camera_controller.cpp
     src/screen.cpp
     src/renderer.cpp
     src/mesh.cpp

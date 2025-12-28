@@ -10,11 +10,16 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
   this->dims = dims;
 
   // update target and eye
-  frame_scene_to_view(dims);
-  orbit_camera();
-  look_at();
+  if (!has_hydra_camera) {
+    // Default to internal camera
+    // if Hydra camera not set
+    frame_scene_to_view(dims);
+    orbit_camera();
+    look_at();
+  }
   // Correct for non-square terminal characters (typically 1x2 ratio)
   float aspect = 0.5f * (float)dims.x() / std::max(1.0f, (float)dims.y());
+  float fov_y = has_hydra_camera ? hydra_fov_y : FOV;
 
   Eigen::Vector3f light_dir = Eigen::Vector3f(0.4, 0.6, 0.2).normalized();
 
@@ -46,9 +51,9 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
       if (n_view.z() <= 0)
         continue;
 
-      auto q0 = project(v0, FOV, aspect);
-      auto q1 = project(v1, FOV, aspect);
-      auto q2 = project(v2, FOV, aspect);
+      auto q0 = project(v0, fov_y, aspect);
+      auto q1 = project(v1, fov_y, aspect);
+      auto q2 = project(v2, fov_y, aspect);
       if (!q0 || !q1 || !q2)
         continue;
 
@@ -237,6 +242,34 @@ void Renderer::look_at(Eigen::Vector3f up) {
   fneg = -f;
 }
 
+void Renderer::set_hydra_camera(const pxr::GfMatrix4d &world_to_view,
+                                float fov_y) {
+  pxr::GfMatrix4d view = world_to_view;
+  pxr::GfMatrix4d inv_view = view.GetInverse();
+  pxr::GfVec4d eye4 = inv_view * pxr::GfVec4d(0.0, 0.0, 0.0, 1.0);
+  eye = Eigen::Vector3f(eye4[0], eye4[1], eye4[2]);
+
+  pxr::GfVec4d row0 = view.GetRow(0);
+  pxr::GfVec4d row1 = view.GetRow(1);
+  pxr::GfVec4d row2 = view.GetRow(2);
+  r = Eigen::Vector3f(row0[0], row0[1], row0[2]).normalized();
+  u = Eigen::Vector3f(row1[0], row1[1], row1[2]).normalized();
+  fneg = Eigen::Vector3f(row2[0], row2[1], row2[2]).normalized();
+
+  view_matrix.setIdentity();
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 4; ++j) {
+      view_matrix(i, j) = static_cast<float>(view[j][i]);
+    }
+  }
+
+  target = eye - fneg;
+  hydra_fov_y = fov_y;
+  has_hydra_camera = true;
+}
+
+void Renderer::clear_hydra_camera() { has_hydra_camera = false; }
+
 inline std::optional<Eigen::Vector3f>
 Renderer::project(Eigen::Vector3f p_view, float fov_y, float aspect) {
   if (p_view.z() > -1e-6) {
@@ -278,6 +311,11 @@ Renderer::barycentric(const Eigen::Vector2f &p, const Eigen::Vector2f &a,
 }
 
 inline Eigen::Vector3f Renderer::world_to_view(Eigen::Vector3f p) {
+  if (has_hydra_camera) {
+    Eigen::Vector4f hp(p.x(), p.y(), p.z(), 1.0f);
+    Eigen::Vector4f vp = view_matrix * hp;
+    return vp.head<3>();
+  }
   Eigen::Vector3f pe = p - eye;
   return Eigen::Vector3f(pe.dot(r), pe.dot(u), pe.dot(fneg));
 }

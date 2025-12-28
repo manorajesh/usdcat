@@ -1,4 +1,6 @@
 #pragma once
+#include <pxr/imaging/hd/camera.h>
+#include <pxr/imaging/hd/renderIndex.h>
 #include <pxr/imaging/hd/renderPass.h>
 #include <pxr/imaging/hd/renderPassState.h>
 #include <pxr/imaging/hd/task.h>
@@ -9,8 +11,10 @@ namespace pxr {
 class HdTerminalRenderTask final : public HdTask {
 public:
   HdTerminalRenderTask(HdRenderPassSharedPtr const &renderPass,
-                       SdfPath const &id)
-      : HdTask(id), _renderPass(renderPass) {
+                       SdfPath const &id, HdRenderIndex *renderIndex,
+                       SdfPath const &cameraPath)
+      : HdTask(id), _renderPass(renderPass), _renderIndex(renderIndex),
+        _cameraPath(cameraPath) {
     _renderPassState = std::make_shared<HdRenderPassState>();
   }
 
@@ -18,6 +22,23 @@ public:
             [[maybe_unused]] HdTaskContext *ctx, // Correct type
             [[maybe_unused]] HdDirtyBits *dirtyBits) override {
     _renderPass->Sync();
+    if (!_renderIndex) {
+      return;
+    }
+
+    HdCamera *camera = nullptr;
+    if (!_cameraPath.IsEmpty()) {
+      HdSprim *sprim =
+          _renderIndex->GetSprim(HdPrimTypeTokens->camera, _cameraPath);
+      camera = dynamic_cast<HdCamera *>(sprim);
+    }
+
+    if (!camera) {
+      camera = dynamic_cast<HdCamera *>(
+          _renderIndex->GetFallbackSprim(HdPrimTypeTokens->camera));
+    }
+
+    _renderPassState->SetCamera(camera);
   }
 
   void Prepare([[maybe_unused]] HdTaskContext *ctx,
@@ -34,6 +55,8 @@ public:
 private:
   HdRenderPassSharedPtr _renderPass;
   HdRenderPassStateSharedPtr _renderPassState;
+  HdRenderIndex *_renderIndex = nullptr;
+  SdfPath _cameraPath;
 };
 
 } // namespace pxr
