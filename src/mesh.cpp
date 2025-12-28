@@ -19,9 +19,10 @@ void HdTerminalMesh::_InitRepr(TfToken const &reprToken,
   }
 }
 
-void HdTerminalMesh::Sync(HdSceneDelegate *sceneDelegate,
-                          HdRenderParam *renderParam, HdDirtyBits *dirtyBits,
-                          TfToken const &reprToken) {
+void HdTerminalMesh::Sync([[maybe_unused]] HdSceneDelegate *sceneDelegate,
+                          [[maybe_unused]] HdRenderParam *renderParam,
+                          [[maybe_unused]] HdDirtyBits *dirtyBits,
+                          [[maybe_unused]] TfToken const &reprToken) {
   auto id = GetId();
   HdRenderIndex &renderIndex = sceneDelegate->GetRenderIndex();
   HdTerminalDelegate *delegate =

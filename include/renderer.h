@@ -12,8 +12,7 @@ public:
   Renderer() {}
   ~Renderer() {}
 
-  void update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
-                          float radius);
+  void update_framebuffer(Eigen::Vector2i dims);
   void display_framebuffer();
 
   // mesh management

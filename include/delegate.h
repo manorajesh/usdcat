@@ -20,31 +20,35 @@ public:
   void DestroyRprim(HdRprim *rPrim) override;
 
   HdRenderParam *GetRenderParam() const override { return nullptr; }
-  void CommitResources(HdChangeTracker *tracker) override {}
+  void CommitResources([[maybe_unused]] HdChangeTracker *tracker) override {}
 
   // mandatory overrides with empty implementations
   HdResourceRegistrySharedPtr GetResourceRegistry() const override {
     return nullptr;
   }
-  HdSprim *CreateSprim(TfToken const &typeId, SdfPath const &primId) override {
+  HdSprim *CreateSprim([[maybe_unused]] TfToken const &typeId,
+                       [[maybe_unused]] SdfPath const &primId) override {
     return nullptr;
   }
-  HdSprim *CreateFallbackSprim(TfToken const &typeId) override {
+  HdSprim *
+  CreateFallbackSprim([[maybe_unused]] TfToken const &typeId) override {
     return nullptr;
   }
-  void DestroySprim(HdSprim *sprim) override {}
-  HdBprim *CreateBprim(TfToken const &typeId, SdfPath const &primId) override {
+  void DestroySprim([[maybe_unused]] HdSprim *sprim) override {}
+  HdBprim *CreateBprim([[maybe_unused]] TfToken const &typeId,
+                       [[maybe_unused]] SdfPath const &primId) override {
     return nullptr;
   }
-  HdBprim *CreateFallbackBprim(TfToken const &typeId) override {
+  HdBprim *
+  CreateFallbackBprim([[maybe_unused]] TfToken const &typeId) override {
     return nullptr;
   }
-  void DestroyBprim(HdBprim *bprim) override {}
-  HdInstancer *CreateInstancer(HdSceneDelegate *delegate,
-                               SdfPath const &id) override {
+  void DestroyBprim([[maybe_unused]] HdBprim *bprim) override {}
+  HdInstancer *CreateInstancer([[maybe_unused]] HdSceneDelegate *delegate,
+                               [[maybe_unused]] SdfPath const &id) override {
     return nullptr;
   }
-  void DestroyInstancer(HdInstancer *instancer) override {}
+  void DestroyInstancer([[maybe_unused]] HdInstancer *instancer) override {}
 
 private:
   Renderer *_renderer;

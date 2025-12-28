@@ -2,8 +2,8 @@
 #include "delegate.h"
 
 void pxr::HdTerminalRenderPass::_Execute(
-    HdRenderPassStateSharedPtr const &renderPassState,
-    TfTokenVector const &renderTags) {
+    [[maybe_unused]] HdRenderPassStateSharedPtr const &renderPassState,
+    [[maybe_unused]] TfTokenVector const &renderTags) {
 
   // 1. Get the Delegate from the Render Index
   auto *delegate =
@@ -17,9 +17,5 @@ void pxr::HdTerminalRenderPass::_Execute(
   // For now, these are likely still stored or passed into your renderer
   int w, h;
   renderer->screen.get_dims(h, w);
-
-  // Note: yaw, pitch, and radius are likely managed in your main.cpp loop
-  // and updated in the renderer. You can call your core update function here:
-  renderer->update_framebuffer({w, h}, renderer->get_yaw(),
-                               renderer->get_pitch(), renderer->get_radius());
+  renderer->update_framebuffer({w, h});
 }

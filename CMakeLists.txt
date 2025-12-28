@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.10)
 project(usdcat)
 
+# set macos version if on macOS minimum 26.1
+if(APPLE)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "26.1" CACHE STRING "Minimum macOS version" FORCE)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

@@ -14,15 +14,15 @@ public:
     _renderPassState = std::make_shared<HdRenderPassState>();
   }
 
-  void Sync(HdSceneDelegate *delegate,
-            HdTaskContext *ctx, // Correct type
-            HdDirtyBits *dirtyBits) override {
+  void Sync([[maybe_unused]] HdSceneDelegate *delegate,
+            [[maybe_unused]] HdTaskContext *ctx, // Correct type
+            [[maybe_unused]] HdDirtyBits *dirtyBits) override {
     _renderPass->Sync();
   }
 
-  void Prepare(HdTaskContext *ctx, HdRenderIndex *renderIndex) override {}
-
-  void Execute(HdTaskContext *ctx) override {
+  void Prepare([[maybe_unused]] HdTaskContext *ctx,
+               [[maybe_unused]] HdRenderIndex *renderIndex) override {}
+  void Execute([[maybe_unused]] HdTaskContext *ctx) override {
     _renderPass->Execute(_renderPassState, GetRenderTags());
   }
 

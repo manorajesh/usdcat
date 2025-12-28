@@ -3,15 +3,11 @@
 
 // public functions ---------------------------------------------
 
-void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
-                                  float radius) {
+void Renderer::update_framebuffer(Eigen::Vector2i dims) {
   framebuffer.assign(dims.x() * dims.y(), ' ');
   zbuffer.assign(dims.x() * dims.y(), std::numeric_limits<float>::infinity());
   intensity_buffer.assign(dims.x() * dims.y(), -1.0f);
   this->dims = dims;
-  this->yaw = yaw;
-  this->pitch = pitch;
-  this->radius = radius;
 
   // update target and eye
   frame_scene_to_view(dims);
