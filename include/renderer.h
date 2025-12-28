@@ -37,6 +37,11 @@ public:
 
   std::map<pxr::SdfPath, MeshData> &get_meshes() { return meshes; }
 
+  void frame_scene_to_view(Eigen::Vector2i dims);
+
+  void set_target(const Eigen::Vector3f &t) { target = t; }
+  Eigen::Vector3f get_target() const { return target; }
+
   // curses Screen
   Screen screen{};
 

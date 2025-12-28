@@ -14,6 +14,7 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims, float yaw, float pitch,
   this->radius = radius;
 
   // update target and eye
+  frame_scene_to_view(dims);
   orbit_camera();
   look_at();
   // Correct for non-square terminal characters (typically 1x2 ratio)
@@ -167,6 +168,54 @@ void Renderer::display_framebuffer() {
     }
   }
   std::swap(previous_framebuffer, framebuffer);
+}
+
+void Renderer::frame_scene_to_view(Eigen::Vector2i dims) {
+  if (meshes.empty())
+    return;
+
+  Eigen::Vector3f bmin(std::numeric_limits<float>::infinity(),
+                       std::numeric_limits<float>::infinity(),
+                       std::numeric_limits<float>::infinity());
+  Eigen::Vector3f bmax(-std::numeric_limits<float>::infinity(),
+                       -std::numeric_limits<float>::infinity(),
+                       -std::numeric_limits<float>::infinity());
+
+  bool any = false;
+  for (auto const &[path, m] : meshes) {
+    for (auto const &v : m.vertices) {
+      Eigen::Vector3f p = (m.worldTransform * v.homogeneous()).head<3>();
+      bmin = bmin.cwiseMin(p);
+      bmax = bmax.cwiseMax(p);
+      any = true;
+    }
+  }
+  if (!any)
+    return;
+
+  Eigen::Vector3f center = 0.5f * (bmin + bmax);
+  Eigen::Vector3f ext = 0.5f * (bmax - bmin);
+  float sceneR = ext.norm();
+  sceneR = std::max(sceneR, 1e-4f);
+
+  // Always look at scene center
+  target = center;
+
+  // Match your projection's effective half-angle (see project(): fov_y * 0.6)
+  float halfV = FOV * 0.6f;
+  float tanHalfV = std::tan(halfV);
+
+  float aspect = 0.5f * (float)dims.x() / std::max(1.0f, (float)dims.y());
+  aspect = std::max(1e-4f, aspect);
+
+  // Need to fit sphere in both vertical and horizontal
+  float margin = 1.10f;
+  float reqV = (sceneR * margin) / tanHalfV;
+  float reqH = (sceneR * margin) / (tanHalfV * aspect);
+  float required = std::max(reqV, reqH);
+
+  // Only zoom out (don't fight user zooming out further)
+  radius = std::max(radius, required);
 }
 
 // private functions ---------------------------------------------
