@@ -7,7 +7,13 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
   framebuffer.assign(dims.x() * dims.y(), "");
   zbuffer.assign(dims.x() * dims.y(), std::numeric_limits<float>::infinity());
   intensity_buffer.assign(dims.x() * dims.y(), -1.0f);
+  hi_res_intensity.assign(hi_res_dims.x() * hi_res_dims.y(), 0.0f);
   this->dims = dims;
+  this->hi_res_dims = Eigen::Vector2i(dims.x() * 2, dims.y() * 4);
+
+  dot_buffer.assign(hi_res_dims.x() * hi_res_dims.y(), 0);
+  hi_res_zbuffer.assign(hi_res_dims.x() * hi_res_dims.y(),
+                        std::numeric_limits<float>::infinity());
 
   // update target and eye
   if (!has_hydra_camera) {
@@ -61,15 +67,15 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
       Eigen::Vector3f proj1 = *q1;
       Eigen::Vector3f proj2 = *q2;
 
-      Eigen::Vector2f s0 = to_screen(proj0.head<2>());
-      Eigen::Vector2f s1 = to_screen(proj1.head<2>());
-      Eigen::Vector2f s2 = to_screen(proj2.head<2>());
+      Eigen::Vector2f s0 = to_hi_res_screen(proj0.head<2>());
+      Eigen::Vector2f s1 = to_hi_res_screen(proj1.head<2>());
+      Eigen::Vector2f s2 = to_hi_res_screen(proj2.head<2>());
 
       int minx = std::max(0, std::min({(int)s0.x(), (int)s1.x(), (int)s2.x()}));
-      int maxx = std::min(dims.x() - 1,
+      int maxx = std::min(hi_res_dims.x() - 1,
                           std::max({(int)s0.x(), (int)s1.x(), (int)s2.x()}));
       int miny = std::max(0, std::min({(int)s0.y(), (int)s1.y(), (int)s2.y()}));
-      int maxy = std::min(dims.y() - 1,
+      int maxy = std::min(hi_res_dims.y() - 1,
                           std::max({(int)s0.y(), (int)s1.y(), (int)s2.y()}));
 
       int idx = (int)(lambert * (ramp_size - 1) + 0.5);
@@ -82,101 +88,32 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
 
           Eigen::Vector3f bc = *bc_optional;
 
-          if (bc.x() < 0 || bc.y() < 0 || bc.z() < 0)
+          if (bc.x() < 0.0 || bc.y() < 0.0 || bc.z() < 0.0)
             continue;
 
           float depth =
               bc.x() * proj0.z() + bc.y() * proj1.z() + bc.z() * proj2.z();
-          int k = py * dims.x() + px;
-          if (depth < zbuffer[k]) {
-            zbuffer[k] = depth;
-            framebuffer[k] = ch;
-            intensity_buffer[k] = lambert;
+          int k_dot = py * hi_res_dims.x() + px;
+          if (depth < hi_res_zbuffer[k_dot]) {
+            hi_res_zbuffer[k_dot] = depth;
+            dot_buffer[k_dot] = 1;
+            hi_res_intensity[k_dot] = lambert; // Store intensity
           }
         }
       }
     }
   }
 
-  // Edge detection
-  // for (int y = 1; y < dims.y() - 1; ++y) {
-  //   for (int x = 1; x < dims.x() - 1; ++x) {
-  //     int k = y * dims.x() + x;
-  //     if (intensity_buffer[k] < 0)
-  //       continue;
-
-  //     float gx = 0;
-  //     float gy = 0;
-
-  //     auto get_val = [&](int xx, int yy) {
-  //       return intensity_buffer[yy * dims.x() + xx];
-  //     };
-
-  //     // Sobel kernels
-  //     gx += -1 * get_val(x - 1, y - 1);
-  //     gx += 1 * get_val(x + 1, y - 1);
-  //     gx += -2 * get_val(x - 1, y);
-  //     gx += 2 * get_val(x + 1, y);
-  //     gx += -1 * get_val(x - 1, y + 1);
-  //     gx += 1 * get_val(x + 1, y + 1);
-
-  //     gy += -1 * get_val(x - 1, y - 1);
-  //     gy += -2 * get_val(x, y - 1);
-  //     gy += -1 * get_val(x + 1, y - 1);
-  //     gy += 1 * get_val(x - 1, y + 1);
-  //     gy += 2 * get_val(x, y + 1);
-  //     gy += 1 * get_val(x + 1, y + 1);
-
-  //     float g = std::sqrt(gx * gx + gy * gy);
-  //     if (g > 0.4f) {
-  //       if (std::abs(gx) > 2.5 * std::abs(gy)) {
-  //         framebuffer[k] = "|";
-  //       } else if (std::abs(gy) > 2.5 * std::abs(gx)) {
-  //         framebuffer[k] = "-";
-  //       } else {
-  //         if ((gx > 0 && gy > 0) || (gx < 0 && gy < 0)) {
-  //           framebuffer[k] = "/";
-  //         } else {
-  //           framebuffer[k] = "\\";
-  //         }
-  //       }
-  //     }
-  //   }
-  // }
+  for (int y = 0; y < dims.y(); ++y) {
+    for (int x = 0; x < dims.x(); ++x) {
+      framebuffer[y * dims.x() + x] = get_colored_braille_char(x, y);
+    }
+  }
 }
 
 void Renderer::display_framebuffer() {
-  // if (previous_framebuffer.size() != framebuffer.size()) {
-  //   screen.erase();
-  //   previous_framebuffer.assign(framebuffer.size(), "");
-  // }
-
-  // for (int row = 0; row < dims.y(); ++row) {
-  //   int row_offset = row * dims.x();
-  //   for (int col = 0; col < dims.x();) {
-  //     if (framebuffer[row_offset + col] ==
-  //         previous_framebuffer[row_offset + col]) {
-  //       col++;
-  //       continue;
-  //     }
-  //     int start = col;
-  //     while (col < dims.x() && framebuffer[row_offset + col] !=
-  //                                  previous_framebuffer[row_offset + col]) {
-  //       col++;
-  //     }
-  //     screen.add_string(row, start, framebuffer[row_offset + start],
-  //                       col - start);
-  //   }
-  // }
-  // std::swap(previous_framebuffer, framebuffer);
-
   screen.erase();
-  for (int row = 0; row < dims.y(); ++row) {
-    int row_offset = row * dims.x();
-    for (int col = 0; col < dims.x(); ++col) {
-      screen.add_string(row, col, framebuffer[row_offset + col]);
-    }
-  }
+  screen.display_frame(framebuffer, dims.x(), dims.y());
 }
 
 void Renderer::frame_scene_to_view(Eigen::Vector2i dims) {
@@ -294,6 +231,61 @@ inline Eigen::Vector2f Renderer::to_screen(Eigen::Vector2f ndc) {
   float sx = (ndc.x() * 0.5 + 0.5) * (dims.x() - 1);
   float sy = (-ndc.y() * 0.5 + 0.5) * (dims.y() - 1);
   return Eigen::Vector2f(sx, sy);
+}
+
+inline Eigen::Vector2f Renderer::to_hi_res_screen(Eigen::Vector2f ndc) {
+  float sx = (ndc.x() * 0.5f + 0.5f) * (hi_res_dims.x() - 1);
+  float sy = (-ndc.y() * 0.5f + 0.5f) * (hi_res_dims.y() - 1);
+  return Eigen::Vector2f(sx, sy);
+}
+
+std::string Renderer::get_colored_braille_char(int char_x, int char_y) {
+  int code = 0;
+  float total_intensity = 0.0f;
+  int active_dots = 0;
+
+  static const int dot_map[4][2] = {{0, 3}, {1, 4}, {2, 5}, {6, 7}};
+
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 2; ++j) {
+      int dx = char_x * 2 + j;
+      int dy = char_y * 4 + i;
+      if (dx < hi_res_dims.x() && dy < hi_res_dims.y()) {
+        int idx = dy * hi_res_dims.x() + dx;
+        if (dot_buffer[idx]) {
+          code |= (1 << dot_map[i][j]);
+          total_intensity += hi_res_intensity[idx];
+          active_dots++;
+        }
+      }
+    }
+  }
+
+  if (active_dots == 0)
+    return "\xe2\xa0\x80";
+
+  // Calculate average intensity
+  float avg = total_intensity / (float)active_dots;
+
+  // Map intensity to 0-255 for grayscale
+  int color = static_cast<int>(avg * 255.0f);
+  color = std::clamp(color, 0, 255);
+
+  // Construct UTF-8 Braille
+  std::string result;
+  // ANSI Foreground Color: \x1b[38;2;r;g;bm
+  result += "\x1b[38;2;" + std::to_string(color) + ";" + std::to_string(color) +
+            ";" + std::to_string(color) + "m";
+
+  // Add Braille bytes
+  result.push_back(static_cast<char>(0xE2));
+  result.push_back(static_cast<char>(0xA0 | (code >> 6)));
+  result.push_back(static_cast<char>(0x80 | (code & 0x3F)));
+
+  // Reset color
+  result += "\x1b[0m";
+
+  return result;
 }
 
 inline std::optional<Eigen::Vector3f>
