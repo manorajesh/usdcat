@@ -101,13 +101,12 @@ int main(int argc, char **argv) {
     renderer.screen.add_string(
         h - 1, 0, "Arrows: orbit | w/s: zoom | f: frame | q: quit");
     renderer.screen.refresh();
+    frametimer.end();
 
     int c = renderer.screen.wgetch();
     if (controller.handle_input(c, renderer, camera, w, h, running)) {
       sceneDelegate.ApplyPendingUpdates();
     }
-
-    frametimer.end();
   }
 
   return 0;
