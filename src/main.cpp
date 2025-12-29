@@ -25,6 +25,7 @@ int main(int argc, char **argv) {
     return -1;
   }
 
+  // camera setup
   pxr::SdfPath cameraPath;
   for (const auto &prim : stage->Traverse()) {
     if (prim.IsA<pxr::UsdGeomCamera>()) {
@@ -43,6 +44,7 @@ int main(int argc, char **argv) {
   CameraController controller;
   controller.apply_orbit(camera);
 
+  // delegate and render index setup
   pxr::HdTerminalDelegate renderDelegate(&renderer);
   pxr::HdRenderIndex *renderIndex =
       pxr::HdRenderIndex::New(&renderDelegate, {});
@@ -71,6 +73,7 @@ int main(int argc, char **argv) {
   int w{0}, h{0};
   FrameTimer frametimer; // moving average over 100 frames by default
 
+  // initial frame to setup framebuffer size and camera
   renderer.screen.get_dims(h, w);
   engine.Execute(renderIndex, &tasks);
   if (controller.frame_to_meshes(renderer, camera, w, h)) {
