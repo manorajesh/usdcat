@@ -26,9 +26,6 @@ endif()
 # Find Eigen3
 find_package(Eigen3 REQUIRED NO_MODULE)
 
-# Find Curses
-find_package(Curses REQUIRED)
-
 find_package(OpenGL REQUIRED)
 
 # 1. Point CMake to your USD installation
