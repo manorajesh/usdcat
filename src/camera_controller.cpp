@@ -97,27 +97,27 @@ bool CameraController::handle_input(int c, Renderer &renderer,
     running = false;
     return false;
   case KEY_LEFT:
-    _yaw -= 0.10f;
+    _yaw -= _yaw_step;
     changed = true;
     break;
   case KEY_RIGHT:
-    _yaw += 0.10f;
+    _yaw += _yaw_step;
     changed = true;
     break;
   case KEY_UP:
-    _pitch += 0.08f;
+    _pitch += _pitch_step;
     changed = true;
     break;
   case KEY_DOWN:
-    _pitch -= 0.08f;
+    _pitch -= _pitch_step;
     changed = true;
     break;
   case 'w':
-    _radius = std::max(1.0f, _radius - 0.3f);
+    _radius = std::max(1.0f, _radius - _radius_step);
     changed = true;
     break;
   case 's':
-    _radius += 0.3f;
+    _radius += _radius_step;
     changed = true;
     break;
   case 'f':
