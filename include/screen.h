@@ -8,7 +8,7 @@ private:
   bool owns_stdscr;
 
 public:
-  Screen(WINDOW *win = nullptr);
+  Screen(bool blocking_input = true, WINDOW *win = nullptr);
   ~Screen();
 
   void add_string(int y, int x, const char *str, int n);

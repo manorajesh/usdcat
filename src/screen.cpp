@@ -1,13 +1,15 @@
 #include "screen.h"
 
-Screen::Screen(WINDOW *win) : window(win), owns_stdscr(false) {
+Screen::Screen(bool blocking_input, WINDOW *win)
+    : window(win), owns_stdscr(false) {
   if (window == nullptr) {
     initscr();
     cbreak();
     noecho();
     keypad(stdscr, TRUE);
     curs_set(0);
-    timeout(0);
+    if (!blocking_input)
+      timeout(0);
 
     start_color();
     init_pair(1, COLOR_WHITE, COLOR_BLACK);
