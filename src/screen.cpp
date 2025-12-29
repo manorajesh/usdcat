@@ -1,43 +1,117 @@
 #include "screen.h"
+#include <clocale>
+#include <cstdio>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
-Screen::Screen(bool blocking_input, WINDOW *win)
-    : window(win), owns_stdscr(false) {
-  if (window == nullptr) {
-    initscr();
-    cbreak();
-    noecho();
-    keypad(stdscr, TRUE);
-    curs_set(0);
-    if (!blocking_input)
-      timeout(0);
+Screen::Screen(bool blocking_input) {
+  setlocale(LC_ALL, "");
 
-    start_color();
-    init_pair(1, COLOR_WHITE, COLOR_BLACK);
-    bkgd(COLOR_PAIR(1));
+  // 1. Enter Alternate Screen Buffer
+  // and hide the cursor
+  std::printf("\033[?1049h\033[?25l");
 
-    window = stdscr;
-    owns_stdscr = true;
+  // 2. Set terminal to raw mode for non-blocking/direct input
+  tcgetattr(STDIN_FILENO, &orig_termios);
+  struct termios raw = orig_termios;
+  raw.c_lflag &= ~(ECHO | ICANON | ISIG | IEXTEN);
+  raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+  raw.c_cflag |= (CS8);
+
+  // VMIN = 0, VTIME = 0 makes read() non-blocking
+  if (!blocking_input) {
+    raw.c_cc[VMIN] = 0;
+    raw.c_cc[VTIME] = 0;
   } else {
-    keypad(window, TRUE);
+    raw.c_cc[VMIN] = 1;
+    raw.c_cc[VTIME] = 0;
   }
+
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+  is_raw = true;
 }
 
 Screen::~Screen() {
-  if (owns_stdscr) {
-    endwin();
+  // Restore terminal state, show cursor, leave alternate buffer
+  if (is_raw) {
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
   }
+  std::printf("\033[?25h\033[?1049l");
+  std::fflush(stdout);
 }
 
 void Screen::add_string(int y, int x, const char *str) {
-  mvwaddstr(window, y, x, str);
+  // ANSI Move Cursor: \033[Line;ColumnH (1-indexed)
+  std::printf("\033[%d;%dH%s", y + 1, x + 1, str);
 }
+
 void Screen::add_string(int y, int x, const char *str, int n) {
-  mvwaddnstr(window, y, x, str, n);
+  std::printf("\033[%d;%dH%.*s", y + 1, x + 1, n, str);
 }
-void Screen::get_dims(int &h, int &w) { getmaxyx(window, h, w); }
-void Screen::erase() { werase(window); }
-void Screen::refresh() {
-  wnoutrefresh(window); // Copy to virtual screen without refresh
-  doupdate();           // Single efficient update
+
+void Screen::get_dims(int &h, int &w) {
+  struct winsize ws;
+  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1) {
+    h = 24;
+    w = 80; // Fallback
+  } else {
+    h = ws.ws_row;
+    w = ws.ws_col;
+  }
 }
-int Screen::wgetch() { return ::wgetch(window); }
+
+void Screen::refresh() { std::fflush(stdout); }
+
+int Screen::wgetch() {
+  char c = 0;
+  if (read(STDIN_FILENO, &c, 1) == 1) {
+    // Basic arrow key handling (ANSI escape sequences start with \033[)
+    if (c == '\033') {
+      char seq[2];
+      if (read(STDIN_FILENO, &seq[0], 1) == 0)
+        return '\033';
+      if (read(STDIN_FILENO, &seq[1], 1) == 0)
+        return '\033';
+
+      if (seq[0] == '[') {
+        switch (seq[1]) {
+        case 'A':
+          return KEY_UP;
+        case 'B':
+          return KEY_DOWN;
+        case 'C':
+          return KEY_RIGHT;
+        case 'D':
+          return KEY_LEFT;
+        }
+      }
+      return '\033';
+    }
+    return c;
+  }
+  return -1;
+}
+
+void Screen::erase() {
+  // move the cursor back to the top-left
+  std::printf("\033[H");
+}
+
+void Screen::display_frame(const std::vector<std::string> &framebuffer,
+                           int width, int height) {
+  std::string output_buffer;
+  output_buffer.reserve(width * height * 4);
+
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      const std::string &cell = framebuffer[y * width + x];
+      output_buffer += cell;
+    }
+
+    if (y < height - 1) {
+      output_buffer += "\r\n";
+    }
+  }
+
+  std::fwrite(output_buffer.data(), 1, output_buffer.size(), stdout);
+}

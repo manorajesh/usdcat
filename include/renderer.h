@@ -6,6 +6,7 @@
 #include <optional>
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/usd/sdf/path.h>
+#include <string>
 #include <vector>
 
 class Renderer {
@@ -51,19 +52,23 @@ public:
 
 private:
   // character set
-  static constexpr const char RAMP[] =
-      " .`^\",:;Il!i~+_-?][}{1)(|\\/"
-      "*tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
-  static constexpr int RAMP_SIZE = sizeof(RAMP) - 1;
+  const std::string ramp[4] = {" ", "≥", "•", "…"};
+  const int ramp_size = 4;
 
   // geometry keyed by Usd path
   std::map<pxr::SdfPath, MeshData> meshes;
 
   // display variables
-  std::vector<char> framebuffer;
-  std::vector<char> previous_framebuffer;
+  std::vector<std::string> framebuffer;
+  // std::vector<std::string> previous_framebuffer;
   std::vector<float> zbuffer;
   std::vector<float> intensity_buffer;
+
+  // This buffer is 2x wider and 4x taller than the terminal
+  std::vector<uint8_t> dot_buffer;
+  std::vector<float> hi_res_zbuffer;
+  Eigen::Vector2i hi_res_dims;
+  std::vector<float> hi_res_intensity;
 
   // render calculation variables
   Eigen::Vector3f eye;
@@ -91,6 +96,8 @@ private:
                                          float aspect);
 
   Eigen::Vector2f to_screen(Eigen::Vector2f ndc);
+  Eigen::Vector2f to_hi_res_screen(Eigen::Vector2f ndc);
+  std::string get_colored_braille_char(int char_x, int char_y);
 
   std::optional<Eigen::Vector3f> barycentric(const Eigen::Vector2f &p,
                                              const Eigen::Vector2f &a,

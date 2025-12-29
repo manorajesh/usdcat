@@ -21,7 +21,7 @@ private:
 
   float _yaw_step = 0.1f;
   float _pitch_step = 0.08f;
-  float _radius_step = 10.0f;
+  float _radius_step = 50.0f;
 
   pxr::GfVec3d _target = pxr::GfVec3d(0.0, 0.0, 0.0);
 
