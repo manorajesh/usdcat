@@ -1,8 +1,10 @@
 #include "screen.h"
+#include <clocale>
 
 Screen::Screen(bool blocking_input, WINDOW *win)
     : window(win), owns_stdscr(false) {
   if (window == nullptr) {
+    setlocale(LC_ALL, "");
     initscr();
     cbreak();
     noecho();

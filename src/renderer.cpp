@@ -4,7 +4,7 @@
 // public functions ---------------------------------------------
 
 void Renderer::update_framebuffer(Eigen::Vector2i dims) {
-  framebuffer.assign(dims.x() * dims.y(), ' ');
+  framebuffer.assign(dims.x() * dims.y(), "");
   zbuffer.assign(dims.x() * dims.y(), std::numeric_limits<float>::infinity());
   intensity_buffer.assign(dims.x() * dims.y(), -1.0f);
   this->dims = dims;
@@ -72,8 +72,8 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
       int maxy = std::min(dims.y() - 1,
                           std::max({(int)s0.y(), (int)s1.y(), (int)s2.y()}));
 
-      int idx = (int)(lambert * (RAMP_SIZE - 1) + 0.5);
-      char ch = RAMP[std::max(0, std::min(RAMP_SIZE - 1, idx))];
+      int idx = (int)(lambert * (ramp_size - 1) + 0.5);
+      std::string ch = ramp[std::max(0, std::min(ramp_size - 1, idx))];
       for (int py = miny; py <= maxy; ++py) {
         for (int px = minx; px <= maxx; ++px) {
           auto bc_optional = barycentric({px + 0.5f, py + 0.5f}, s0, s1, s2);
@@ -99,76 +99,84 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
   }
 
   // Edge detection
-  for (int y = 1; y < dims.y() - 1; ++y) {
-    for (int x = 1; x < dims.x() - 1; ++x) {
-      int k = y * dims.x() + x;
-      if (intensity_buffer[k] < 0)
-        continue;
+  // for (int y = 1; y < dims.y() - 1; ++y) {
+  //   for (int x = 1; x < dims.x() - 1; ++x) {
+  //     int k = y * dims.x() + x;
+  //     if (intensity_buffer[k] < 0)
+  //       continue;
 
-      float gx = 0;
-      float gy = 0;
+  //     float gx = 0;
+  //     float gy = 0;
 
-      auto get_val = [&](int xx, int yy) {
-        return intensity_buffer[yy * dims.x() + xx];
-      };
+  //     auto get_val = [&](int xx, int yy) {
+  //       return intensity_buffer[yy * dims.x() + xx];
+  //     };
 
-      // Sobel kernels
-      gx += -1 * get_val(x - 1, y - 1);
-      gx += 1 * get_val(x + 1, y - 1);
-      gx += -2 * get_val(x - 1, y);
-      gx += 2 * get_val(x + 1, y);
-      gx += -1 * get_val(x - 1, y + 1);
-      gx += 1 * get_val(x + 1, y + 1);
+  //     // Sobel kernels
+  //     gx += -1 * get_val(x - 1, y - 1);
+  //     gx += 1 * get_val(x + 1, y - 1);
+  //     gx += -2 * get_val(x - 1, y);
+  //     gx += 2 * get_val(x + 1, y);
+  //     gx += -1 * get_val(x - 1, y + 1);
+  //     gx += 1 * get_val(x + 1, y + 1);
 
-      gy += -1 * get_val(x - 1, y - 1);
-      gy += -2 * get_val(x, y - 1);
-      gy += -1 * get_val(x + 1, y - 1);
-      gy += 1 * get_val(x - 1, y + 1);
-      gy += 2 * get_val(x, y + 1);
-      gy += 1 * get_val(x + 1, y + 1);
+  //     gy += -1 * get_val(x - 1, y - 1);
+  //     gy += -2 * get_val(x, y - 1);
+  //     gy += -1 * get_val(x + 1, y - 1);
+  //     gy += 1 * get_val(x - 1, y + 1);
+  //     gy += 2 * get_val(x, y + 1);
+  //     gy += 1 * get_val(x + 1, y + 1);
 
-      float g = std::sqrt(gx * gx + gy * gy);
-      if (g > 0.4f) {
-        if (std::abs(gx) > 2.5 * std::abs(gy)) {
-          framebuffer[k] = '|';
-        } else if (std::abs(gy) > 2.5 * std::abs(gx)) {
-          framebuffer[k] = '-';
-        } else {
-          if ((gx > 0 && gy > 0) || (gx < 0 && gy < 0)) {
-            framebuffer[k] = '/';
-          } else {
-            framebuffer[k] = '\\';
-          }
-        }
-      }
-    }
-  }
+  //     float g = std::sqrt(gx * gx + gy * gy);
+  //     if (g > 0.4f) {
+  //       if (std::abs(gx) > 2.5 * std::abs(gy)) {
+  //         framebuffer[k] = "|";
+  //       } else if (std::abs(gy) > 2.5 * std::abs(gx)) {
+  //         framebuffer[k] = "-";
+  //       } else {
+  //         if ((gx > 0 && gy > 0) || (gx < 0 && gy < 0)) {
+  //           framebuffer[k] = "/";
+  //         } else {
+  //           framebuffer[k] = "\\";
+  //         }
+  //       }
+  //     }
+  //   }
+  // }
 }
 
 void Renderer::display_framebuffer() {
-  if (previous_framebuffer.size() != framebuffer.size()) {
-    screen.erase();
-    previous_framebuffer.assign(framebuffer.size(), '\0');
-  }
+  // if (previous_framebuffer.size() != framebuffer.size()) {
+  //   screen.erase();
+  //   previous_framebuffer.assign(framebuffer.size(), "");
+  // }
 
+  // for (int row = 0; row < dims.y(); ++row) {
+  //   int row_offset = row * dims.x();
+  //   for (int col = 0; col < dims.x();) {
+  //     if (framebuffer[row_offset + col] ==
+  //         previous_framebuffer[row_offset + col]) {
+  //       col++;
+  //       continue;
+  //     }
+  //     int start = col;
+  //     while (col < dims.x() && framebuffer[row_offset + col] !=
+  //                                  previous_framebuffer[row_offset + col]) {
+  //       col++;
+  //     }
+  //     screen.add_string(row, start, framebuffer[row_offset + start],
+  //                       col - start);
+  //   }
+  // }
+  // std::swap(previous_framebuffer, framebuffer);
+
+  screen.erase();
   for (int row = 0; row < dims.y(); ++row) {
     int row_offset = row * dims.x();
-    for (int col = 0; col < dims.x();) {
-      if (framebuffer[row_offset + col] ==
-          previous_framebuffer[row_offset + col]) {
-        col++;
-        continue;
-      }
-      int start = col;
-      while (col < dims.x() && framebuffer[row_offset + col] !=
-                                   previous_framebuffer[row_offset + col]) {
-        col++;
-      }
-      screen.add_string(row, start, &framebuffer[row_offset + start],
-                        col - start);
+    for (int col = 0; col < dims.x(); ++col) {
+      screen.add_string(row, col, framebuffer[row_offset + col]);
     }
   }
-  std::swap(previous_framebuffer, framebuffer);
 }
 
 void Renderer::frame_scene_to_view(Eigen::Vector2i dims) {

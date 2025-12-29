@@ -16,6 +16,10 @@ public:
   void add_string(int y, int x, std::string str) {
     add_string(y, x, str.c_str());
   }
+  void add_string(int y, int x, std::string str, int n) {
+    add_string(y, x, str.c_str(), n);
+  }
+
   void get_dims(int &h, int &w);
   void erase();
   void refresh();
