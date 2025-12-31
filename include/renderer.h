@@ -98,6 +98,7 @@ private:
   Eigen::Vector2f to_screen(Eigen::Vector2f ndc);
   Eigen::Vector2f to_hi_res_screen(Eigen::Vector2f ndc);
   std::string get_colored_braille_char(int char_x, int char_y);
+  std::string get_colored_block_char(int char_x, int char_y);
 
   std::optional<Eigen::Vector3f> barycentric(const Eigen::Vector2f &p,
                                              const Eigen::Vector2f &a,

@@ -9,11 +9,12 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
   intensity_buffer.assign(dims.x() * dims.y(), -1.0f);
   hi_res_intensity.assign(hi_res_dims.x() * hi_res_dims.y(), 0.0f);
   this->dims = dims;
-  this->hi_res_dims = Eigen::Vector2i(dims.x() * 2, dims.y() * 4);
+  this->hi_res_dims = Eigen::Vector2i(dims.x(), dims.y() * 2);
 
   dot_buffer.assign(hi_res_dims.x() * hi_res_dims.y(), 0);
   hi_res_zbuffer.assign(hi_res_dims.x() * hi_res_dims.y(),
                         std::numeric_limits<float>::infinity());
+  hi_res_intensity.assign(hi_res_dims.x() * hi_res_dims.y(), 0.0f);
 
   // update target and eye
   if (!has_hydra_camera) {
@@ -106,7 +107,7 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
 
   for (int y = 0; y < dims.y(); ++y) {
     for (int x = 0; x < dims.x(); ++x) {
-      framebuffer[y * dims.x() + x] = get_colored_braille_char(x, y);
+      framebuffer[y * dims.x() + x] = get_colored_block_char(x, y);
     }
   }
 }
@@ -285,6 +286,39 @@ std::string Renderer::get_colored_braille_char(int char_x, int char_y) {
   // Reset color
   result += "\x1b[0m";
 
+  return result;
+}
+
+std::string Renderer::get_colored_block_char(int char_x, int char_y) {
+  // Top pixel (sub-pixel y = char_y * 2)
+  // Bottom pixel (sub-pixel y = char_y * 2 + 1)
+  int idx_top = (char_y * 2) * hi_res_dims.x() + char_x;
+  int idx_bot = (char_y * 2 + 1) * hi_res_dims.x() + char_x;
+
+  float int_top = hi_res_intensity[idx_top];
+  float int_bot = hi_res_intensity[idx_bot];
+
+  // Map to 0-255 grayscale
+  int c_top = std::clamp((int)(int_top * 255.0f), 0, 255);
+  int c_bot = std::clamp((int)(int_bot * 255.0f), 0, 255);
+
+  // If both pixels are empty (background), return a space
+  if (dot_buffer[idx_top] == 0 && dot_buffer[idx_bot] == 0)
+    return " ";
+
+  std::string result;
+  // Set Foreground (Top Half)
+  result += "\x1b[38;2;" + std::to_string(c_top) + ";" + std::to_string(c_top) +
+            ";" + std::to_string(c_top) + "m";
+  // Set Background (Bottom Half)
+  result += "\x1b[48;2;" + std::to_string(c_bot) + ";" + std::to_string(c_bot) +
+            ";" + std::to_string(c_bot) + "m";
+
+  // The "Upper Half Block" character
+  result += "▀";
+
+  // Reset colors
+  result += "\x1b[0m";
   return result;
 }
 
