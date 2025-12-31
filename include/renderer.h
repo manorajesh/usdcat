@@ -13,7 +13,7 @@ enum class RenderMode { Braille, HalfBlock };
 
 class Renderer {
 public:
-  Renderer() {}
+  Renderer(RenderMode mode) : mode(mode) {}
   ~Renderer() {}
 
   void update_framebuffer(Eigen::Vector2i dims);

@@ -18,7 +18,20 @@ int main(int argc, char **argv) {
     return -1;
   }
 
-  Renderer renderer;
+  RenderMode mode = RenderMode::HalfBlock;
+  if (argc >= 3) {
+    std::string mode_arg = argv[2];
+    if (mode_arg == "-b") {
+      mode = RenderMode::Braille;
+    } else if (mode_arg == "-hb") {
+      mode = RenderMode::HalfBlock;
+    } else {
+      printf("Unknown render mode: %s. Using default HalfBlock mode.\n",
+             mode_arg.c_str());
+    }
+  }
+
+  Renderer renderer(mode);
 
   auto stage = pxr::UsdStage::Open(argv[1]);
   if (!stage) {

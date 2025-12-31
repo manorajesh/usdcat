@@ -4,8 +4,8 @@
 // public functions ---------------------------------------------
 
 void Renderer::update_framebuffer(Eigen::Vector2i dims) {
-  int scale_x = (mode == RenderMode::Braille) ? 2 : 1;
-  int scale_y = (mode == RenderMode::Braille) ? 4 : 2;
+  int scale_x = (mode == RenderMode::Braille) ? 2 : 2;
+  int scale_y = (mode == RenderMode::Braille) ? 4 : 4;
 
   framebuffer.assign(dims.x() * dims.y(), "");
   zbuffer.assign(dims.x() * dims.y(), std::numeric_limits<float>::infinity());
@@ -272,11 +272,12 @@ std::string Renderer::get_colored_braille_char(int char_x, int char_y) {
   if (active_dots == 0)
     return "\xe2\xa0\x80";
 
-  // Calculate average intensity
-  float avg = total_intensity / (float)active_dots;
-
   // Map intensity to 0-255 for grayscale
-  int color = static_cast<int>(avg * 255.0f);
+  float coverage = (float)active_dots / 8.0f;
+  float avg_intensity =
+      (active_dots > 0) ? (total_intensity / active_dots) : 0.0f;
+
+  int color = static_cast<int>(avg_intensity * coverage * 255.0f);
   color = std::clamp(color, 0, 255);
 
   // Construct UTF-8 Braille
@@ -297,34 +298,40 @@ std::string Renderer::get_colored_braille_char(int char_x, int char_y) {
 }
 
 std::string Renderer::get_colored_block_char(int char_x, int char_y) {
-  // Top pixel (sub-pixel y = char_y * 2)
-  // Bottom pixel (sub-pixel y = char_y * 2 + 1)
-  int idx_top = (char_y * 2) * hi_res_dims.x() + char_x;
-  int idx_bot = (char_y * 2 + 1) * hi_res_dims.x() + char_x;
+  // sample a 2x2 area for the TOP and a 2x2 for the BOTTOM
+  // This requires hi_res_dims to be (dims.x * 2, dims.y * 4)
 
-  float int_top = hi_res_intensity[idx_top];
-  float int_bot = hi_res_intensity[idx_bot];
+  auto get_avg_sample = [&](int start_x, int start_y) {
+    float sum = 0.0f;
+    int count = 0;
+    for (int dy = 0; dy < 2; ++dy) {
+      for (int dx = 0; dx < 2; ++dx) {
+        int idx = (start_y + dy) * hi_res_dims.x() + (start_x + dx);
+        if (dot_buffer[idx]) {
+          sum += hi_res_intensity[idx];
+          count++;
+        }
+      }
+    }
+    return (count > 0) ? (sum / 4.0f)
+                       : 0.0f; // Divide by total possible samples
+  };
 
-  // Map to 0-255 grayscale
-  int c_top = std::clamp((int)(int_top * 255.0f), 0, 255);
-  int c_bot = std::clamp((int)(int_bot * 255.0f), 0, 255);
+  float avg_top = get_avg_sample(char_x * 2, char_y * 4);
+  float avg_bot = get_avg_sample(char_x * 2, char_y * 4 + 2);
 
-  // If both pixels are empty (background), return a space
-  if (dot_buffer[idx_top] == 0 && dot_buffer[idx_bot] == 0)
+  if (avg_top <= 0.0f && avg_bot <= 0.0f)
     return " ";
 
+  int c_top = std::clamp((int)(avg_top * 255.0f), 0, 255);
+  int c_bot = std::clamp((int)(avg_bot * 255.0f), 0, 255);
+
   std::string result;
-  // Set Foreground (Top Half)
   result += "\x1b[38;2;" + std::to_string(c_top) + ";" + std::to_string(c_top) +
             ";" + std::to_string(c_top) + "m";
-  // Set Background (Bottom Half)
   result += "\x1b[48;2;" + std::to_string(c_bot) + ";" + std::to_string(c_bot) +
             ";" + std::to_string(c_bot) + "m";
-
-  // The "Upper Half Block" character
   result += "▀";
-
-  // Reset colors
   result += "\x1b[0m";
   return result;
 }
