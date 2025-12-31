@@ -9,7 +9,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Using the official VFX Reference Platform container
     container:
       image: aswf/ci-usd:2023
     
@@ -18,26 +17,28 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          # ASWF containers are AlmaLinux/CentOS based, so we use yum
-          yum install -y eigen3-devel ncurses-devel
+          yum install -y eigen3-devel
+
+      - name: Debug - Locate USD Config
+        # This will print the exact path we need for pxr_DIR to the logs
+        run: find /usr/local -name "pxrConfig.cmake"
 
       - name: Configure CMake
         run: |
           mkdir build && cd build
-          # The pxr_DIR path is standard for these containers.
-          # We explicitly set the include path for Eigen if it's in a non-standard location.
+          # We use /usr/local/lib/cmake as the base search path
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
-            -Dpxr_DIR=/usr/local/lib/cmake/usd \
-            -DEIGEN3_INCLUDE_DIR=/usr/include/eigen3
+            -Dpxr_DIR=/usr/local/lib/cmake \
+            -DEIGEN3_INCLUDE_DIR=/usr/include/eigen3 \
+            -DOpenGL_GL_PREFERENCE=GLVND
 
       - name: Build
         run: |
           cd build
-          # Use all available cores for the build
           make -j$(nproc)
 
       - name: Verify Executable
         run: |
           test -f build/usdcat
-          echo "Build successful! usdcat created."
+          echo "Build successful!"
