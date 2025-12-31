@@ -1,41 +1,47 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.12)
 project(usdcat)
 
-# set macos version if on macOS minimum 26.1
-if(APPLE)
-  set(CMAKE_OSX_DEPLOYMENT_TARGET "26.1" CACHE STRING "Minimum macOS version" FORCE)
-endif()
-
+# --- Project Settings ---
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Compiler optimizations
+# Optimization Flags
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -mcpu=native -DNDEBUG -funroll-loops -flto")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -funroll-loops -flto")
 
-# Additional warnings and optimizations
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# Find Eigen3
+# macOS specific configuration
+if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "26.1" CACHE STRING "Minimum macOS version" FORCE)
+endif()
+
+# --- Dependencies ---
+
+# 1. Eigen3
 find_package(Eigen3 REQUIRED NO_MODULE)
 
+# 2. OpenGL
+set(OpenGL_GL_PREFERENCE GLVND)
 find_package(OpenGL REQUIRED)
 
-# 1. Point CMake to your USD installation
-set(USD_ROOT "/opt/usd")
-list(APPEND CMAKE_PREFIX_PATH "${USD_ROOT}")
+# 3. OpenUSD (pxr)
+# If pxr_DIR isn't set via command line, default to your local path
+if(NOT pxr_DIR AND NOT CMAKE_PREFIX_PATH)
+    set(USD_ROOT "/opt/usd")
+    list(APPEND CMAKE_PREFIX_PATH "${USD_ROOT}")
+endif()
 
-# 2. Find the USD package (exported as 'pxr')
 find_package(pxr REQUIRED)
 
-# Add executable
+# --- Executable ---
+
 add_executable(usdcat 
     src/main.cpp
     src/camera_controller.cpp
@@ -47,21 +53,21 @@ add_executable(usdcat
     src/frame_timer.cpp
 )
 
-# Link libraries
-target_link_libraries(usdcat 
-    Eigen3::Eigen
-    ${CURSES_LIBRARIES}
-    ${PXR_LIBRARIES}
-)
+# --- Linking & Includes ---
 
-# Include directories
 target_include_directories(usdcat PRIVATE 
     ${CMAKE_SOURCE_DIR}/include
-    ${CURSES_INCLUDE_DIRS}
     ${PXR_INCLUDE_DIRS}
 )
 
-# Generate dSYM file on macOS
+# Use PRIVATE for libraries to prevent leaking internal dependencies
+target_link_libraries(usdcat PRIVATE 
+    Eigen3::Eigen
+    ${PXR_LIBRARIES}
+    OpenGL::GL
+)
+
+# macOS Post-Build
 if(APPLE)
     add_custom_command(TARGET usdcat POST_BUILD
         COMMAND dsymutil $<TARGET_FILE:usdcat>
