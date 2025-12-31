@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+enum class RenderMode { Braille, HalfBlock };
+
 class Renderer {
 public:
   Renderer() {}
@@ -46,6 +48,9 @@ public:
 
   void set_hydra_camera(const pxr::GfMatrix4d &world_to_view, float fov_y);
   void clear_hydra_camera();
+
+  void set_render_mode(RenderMode m) { mode = m; }
+  RenderMode get_render_mode() const { return mode; }
 
   // curses Screen
   Screen screen{};
@@ -86,6 +91,8 @@ private:
   Eigen::Vector3f u;
   Eigen::Vector3f fneg;
   Eigen::Matrix4f view_matrix = Eigen::Matrix4f::Identity();
+
+  RenderMode mode = RenderMode::HalfBlock;
 
   // render functions
   void orbit_camera();

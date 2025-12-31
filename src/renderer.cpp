@@ -4,12 +4,15 @@
 // public functions ---------------------------------------------
 
 void Renderer::update_framebuffer(Eigen::Vector2i dims) {
+  int scale_x = (mode == RenderMode::Braille) ? 2 : 1;
+  int scale_y = (mode == RenderMode::Braille) ? 4 : 2;
+
   framebuffer.assign(dims.x() * dims.y(), "");
   zbuffer.assign(dims.x() * dims.y(), std::numeric_limits<float>::infinity());
   intensity_buffer.assign(dims.x() * dims.y(), -1.0f);
   hi_res_intensity.assign(hi_res_dims.x() * hi_res_dims.y(), 0.0f);
   this->dims = dims;
-  this->hi_res_dims = Eigen::Vector2i(dims.x(), dims.y() * 2);
+  hi_res_dims = Eigen::Vector2i(dims.x() * scale_x, dims.y() * scale_y);
 
   dot_buffer.assign(hi_res_dims.x() * hi_res_dims.y(), 0);
   hi_res_zbuffer.assign(hi_res_dims.x() * hi_res_dims.y(),
@@ -107,7 +110,11 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
 
   for (int y = 0; y < dims.y(); ++y) {
     for (int x = 0; x < dims.x(); ++x) {
-      framebuffer[y * dims.x() + x] = get_colored_block_char(x, y);
+      if (mode == RenderMode::Braille) {
+        framebuffer[y * dims.x() + x] = get_colored_braille_char(x, y);
+      } else {
+        framebuffer[y * dims.x() + x] = get_colored_block_char(x, y);
+      }
     }
   }
 }
