@@ -7,24 +7,27 @@ on:
     branches: [master]
 
 jobs:
-  build:
+  build-linux:
+    name: Linux Build (Docker)
     runs-on: ubuntu-latest
+    # This container has OpenUSD and its dependencies pre-installed
     container:
       image: aswf/ci-vfxall:2023
-    
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Install System Dependencies
         run: |
-          # These containers use Yum. We need Eigen and Ncurses for your renderer.
-          yum install -y eigen3-devel ncurses-devel
+          # aswf/ci-vfxall is RockyLinux based (yum)
+          yum install -y eigen3-devel
 
       - name: Configure CMake
         run: |
           mkdir build && cd build
-          # The key fix: pxr_DIR must point specifically to the 'pxr' folder 
-          # inside cmake, or use /usr/local/lib/cmake/pxr
+          # -Dpxr_DIR points to the specific cmake config location in the container
+          # -DEIGEN3_INCLUDE_DIR ensures Eigen is found in its standard Linux path
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -Dpxr_DIR=/usr/local/lib/cmake/pxr \
@@ -34,9 +37,14 @@ jobs:
       - name: Build
         run: |
           cd build
+          # Use all available CPU cores for a faster build
           make -j$(nproc)
 
-      - name: Verify Executable
+      - name: Verify Artifact
         run: |
-          test -f build/usdcat
-          echo "Build successful! Your Hydra renderer is now compiled against OpenUSD."
+          if [ -f "build/usdcat" ]; then
+            echo "SUCCESS: usdcat binary created."
+          else
+            echo "ERROR: usdcat binary not found."
+            exit 1
+          fi
