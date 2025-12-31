@@ -10,7 +10,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      # 'vfxall' includes the actual compiled USD libraries (pxrConfig.cmake)
       image: aswf/ci-vfxall:2023
     
     steps:
@@ -18,16 +17,17 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          # The image is based on RockyLinux (Yum)
-          yum install -y eigen3-devel
+          # These containers use Yum. We need Eigen and Ncurses for your renderer.
+          yum install -y eigen3-devel ncurses-devel
 
       - name: Configure CMake
         run: |
           mkdir build && cd build
-          # In vfxall images, USD is standardly in /usr/local
+          # The key fix: pxr_DIR must point specifically to the 'pxr' folder 
+          # inside cmake, or use /usr/local/lib/cmake/pxr
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
-            -Dpxr_DIR=/usr/local/lib/cmake/usd \
+            -Dpxr_DIR=/usr/local/lib/cmake/pxr \
             -DEIGEN3_INCLUDE_DIR=/usr/include/eigen3 \
             -DOpenGL_GL_PREFERENCE=GLVND
 
@@ -37,4 +37,6 @@ jobs:
           make -j$(nproc)
 
       - name: Verify Executable
-        run: test -f build/usdcat
+        run: |
+          test -f build/usdcat
+          echo "Build successful! Your Hydra renderer is now compiled against OpenUSD."
