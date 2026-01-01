@@ -99,19 +99,25 @@ void Screen::erase() {
 
 void Screen::display_frame(const std::vector<std::string> &framebuffer,
                            int width, int height) {
+  // Each cell can be up to ~60 bytes (ANSI codes + UTF-8 char)
+  // Plus newlines. Reserve generously to avoid reallocations.
   std::string output_buffer;
-  output_buffer.reserve(width * height * 4);
+  output_buffer.reserve(width * height * 64);
 
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
       const std::string &cell = framebuffer[y * width + x];
-      output_buffer += cell;
+      output_buffer.append(cell);
     }
 
     if (y < height - 1) {
-      output_buffer += "\r\n";
+      output_buffer.append("\r\n", 2);
     }
   }
 
   std::fwrite(output_buffer.data(), 1, output_buffer.size(), stdout);
+}
+
+void Screen::display_buffer(const char *data, size_t len) {
+  std::fwrite(data, 1, len, stdout);
 }

@@ -23,6 +23,8 @@ public:
   void display_frame(const std::vector<std::string> &framebuffer, int width,
                      int height);
 
+  void display_buffer(const char *data, size_t len);
+
 private:
   struct termios orig_termios;
   bool is_raw = false;

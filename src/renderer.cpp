@@ -1,5 +1,21 @@
 #include "renderer.h"
 #include <algorithm>
+#include <cstring>
+
+static inline char *write_uint8(char *buf, int val) {
+  if (val >= 100) {
+    *buf++ = '0' + (val / 100);
+    val %= 100;
+    *buf++ = '0' + (val / 10);
+    *buf++ = '0' + (val % 10);
+  } else if (val >= 10) {
+    *buf++ = '0' + (val / 10);
+    *buf++ = '0' + (val % 10);
+  } else {
+    *buf++ = '0' + val;
+  }
+  return buf;
+}
 
 // public functions ---------------------------------------------
 
@@ -10,15 +26,27 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
   this->dims = dims;
   hi_res_dims = Eigen::Vector2i(dims.x() * scale_x, dims.y() * scale_y);
 
-  framebuffer.assign(dims.x() * dims.y(), "");
-  zbuffer.assign(dims.x() * dims.y(), std::numeric_limits<float>::infinity());
-  intensity_buffer.assign(dims.x() * dims.y(), -1.0f);
-  hi_res_intensity.assign(hi_res_dims.x() * hi_res_dims.y(), 0.0f);
+  size_t fb_size = dims.x() * dims.y();
+  size_t hr_size = hi_res_dims.x() * hi_res_dims.y();
 
-  dot_buffer.assign(hi_res_dims.x() * hi_res_dims.y(), 0);
-  hi_res_zbuffer.assign(hi_res_dims.x() * hi_res_dims.y(),
-                        std::numeric_limits<float>::infinity());
-  hi_res_intensity.assign(hi_res_dims.x() * hi_res_dims.y(), 0.0f);
+  zbuffer.resize(fb_size);
+  intensity_buffer.resize(fb_size);
+  dot_buffer.resize(hr_size);
+  hi_res_zbuffer.resize(hr_size);
+  hi_res_intensity.resize(hr_size);
+
+  // Fast clear with memset
+  std::fill(zbuffer.begin(), zbuffer.end(),
+            std::numeric_limits<float>::infinity());
+  std::memset(intensity_buffer.data(), 0, fb_size * sizeof(float));
+  std::memset(dot_buffer.data(), 0, hr_size);
+  std::fill(hi_res_zbuffer.begin(), hi_res_zbuffer.end(),
+            std::numeric_limits<float>::infinity());
+  std::memset(hi_res_intensity.data(), 0, hr_size * sizeof(float));
+
+  // Reserve output buffer (max ~50 bytes per cell + newlines)
+  output_buffer.clear();
+  output_buffer.reserve(dims.x() * dims.y() * 52 + dims.y() * 2);
 
   // update target and eye
   if (!has_hydra_camera) {
@@ -109,20 +137,27 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
     }
   }
 
+  // Write directly to output_buffer
+  char cell_buf[64];
   for (int y = 0; y < dims.y(); ++y) {
     for (int x = 0; x < dims.x(); ++x) {
+      int len;
       if (mode == RenderMode::Braille) {
-        framebuffer[y * dims.x() + x] = get_colored_braille_char(x, y);
+        len = write_colored_braille_char(cell_buf, x, y);
       } else {
-        framebuffer[y * dims.x() + x] = get_colored_block_char(x, y);
+        len = write_colored_block_char(cell_buf, x, y);
       }
+      output_buffer.append(cell_buf, len);
+    }
+    if (y < dims.y() - 1) {
+      output_buffer.append("\r\n", 2);
     }
   }
 }
 
 void Renderer::display_framebuffer() {
   screen.erase();
-  screen.display_frame(framebuffer, dims.x(), dims.y());
+  screen.display_buffer(output_buffer.data(), output_buffer.size());
 }
 
 void Renderer::frame_scene_to_view(Eigen::Vector2i dims) {
@@ -248,93 +283,168 @@ inline Eigen::Vector2f Renderer::to_hi_res_screen(Eigen::Vector2f ndc) {
   return Eigen::Vector2f(sx, sy);
 }
 
-std::string Renderer::get_colored_braille_char(int char_x, int char_y) {
+int Renderer::write_colored_braille_char(char *out, int char_x, int char_y) {
   int code = 0;
   float total_intensity = 0.0f;
   int active_dots = 0;
 
   static const int dot_map[4][2] = {{0, 3}, {1, 4}, {2, 5}, {6, 7}};
+  const int hr_width = hi_res_dims.x();
+  const int base_x = char_x * 2;
+  const int base_y = char_y * 4;
 
   for (int i = 0; i < 4; ++i) {
+    int dy = base_y + i;
+    if (dy >= hi_res_dims.y())
+      continue;
+    int row_offset = dy * hr_width;
     for (int j = 0; j < 2; ++j) {
-      int dx = char_x * 2 + j;
-      int dy = char_y * 4 + i;
-      if (dx < hi_res_dims.x() && dy < hi_res_dims.y()) {
-        int idx = dy * hi_res_dims.x() + dx;
-        if (dot_buffer[idx]) {
-          code |= (1 << dot_map[i][j]);
-          total_intensity += hi_res_intensity[idx];
-          active_dots++;
-        }
+      int dx = base_x + j;
+      if (dx >= hr_width)
+        continue;
+      int idx = row_offset + dx;
+      if (dot_buffer[idx]) {
+        code |= (1 << dot_map[i][j]);
+        total_intensity += hi_res_intensity[idx];
+        active_dots++;
       }
     }
   }
 
-  if (active_dots == 0)
-    return "\xe2\xa0\x80";
+  if (active_dots == 0) {
+    out[0] = '\xe2';
+    out[1] = '\xa0';
+    out[2] = '\x80';
+    return 3;
+  }
 
   // Map intensity to 0-255 for grayscale
-  float coverage = (float)active_dots / 8.0f;
-  float avg_intensity =
-      (active_dots > 0) ? (total_intensity / active_dots) : 0.0f;
+  float coverage = (float)active_dots * 0.125f; // /8
+  float avg_intensity = total_intensity / active_dots;
 
   int color = static_cast<int>(avg_intensity * coverage * 255.0f);
   color = std::clamp(color, 0, 255);
 
-  // Construct UTF-8 Braille
-  std::string result;
-  // ANSI Foreground Color: \x1b[38;2;r;g;bm
-  result += "\x1b[38;2;" + std::to_string(color) + ";" + std::to_string(color) +
-            ";" + std::to_string(color) + "m";
+  char *p = out;
 
-  // Add Braille bytes
-  result.push_back(static_cast<char>(0xE2));
-  result.push_back(static_cast<char>(0xA0 | (code >> 6)));
-  result.push_back(static_cast<char>(0x80 | (code & 0x3F)));
+  *p++ = '\x1b';
+  *p++ = '[';
+  *p++ = '3';
+  *p++ = '8';
+  *p++ = ';';
+  *p++ = '2';
+  *p++ = ';';
+  p = write_uint8(p, color);
+  *p++ = ';';
+  p = write_uint8(p, color);
+  *p++ = ';';
+  p = write_uint8(p, color);
+  *p++ = 'm';
 
-  // Reset color
-  result += "\x1b[0m";
+  // Braille UTF-8 bytes
+  *p++ = static_cast<char>(0xE2);
+  *p++ = static_cast<char>(0xA0 | (code >> 6));
+  *p++ = static_cast<char>(0x80 | (code & 0x3F));
 
-  return result;
+  // Reset: \x1b[0m
+  *p++ = '\x1b';
+  *p++ = '[';
+  *p++ = '0';
+  *p++ = 'm';
+
+  return static_cast<int>(p - out);
 }
 
-std::string Renderer::get_colored_block_char(int char_x, int char_y) {
+int Renderer::write_colored_block_char(char *out, int char_x, int char_y) {
   // sample a 2x2 area for the TOP and a 2x2 for the BOTTOM
   // This requires hi_res_dims to be (dims.x * 2, dims.y * 4)
+  const int hr_width = hi_res_dims.x();
+  const int base_x = char_x * 2;
+  const int base_y_top = char_y * 4;
+  const int base_y_bot = base_y_top + 2;
 
-  auto get_avg_sample = [&](int start_x, int start_y) {
-    float sum = 0.0f;
-    int count = 0;
-    for (int dy = 0; dy < 2; ++dy) {
-      for (int dx = 0; dx < 2; ++dx) {
-        int idx = (start_y + dy) * hi_res_dims.x() + (start_x + dx);
-        if (dot_buffer[idx]) {
-          sum += hi_res_intensity[idx];
-          count++;
-        }
+  // Inline sampling for top 2x2 block
+  float sum_top = 0.0f;
+  int count_top = 0;
+  for (int dy = 0; dy < 2; ++dy) {
+    int row_offset = (base_y_top + dy) * hr_width;
+    for (int dx = 0; dx < 2; ++dx) {
+      int idx = row_offset + base_x + dx;
+      if (dot_buffer[idx]) {
+        sum_top += hi_res_intensity[idx];
+        count_top++;
       }
     }
-    return (count > 0) ? (sum / 4.0f)
-                       : 0.0f; // Divide by total possible samples
-  };
+  }
+  float avg_top = (count_top > 0) ? (sum_top * 0.25f) : 0.0f;
 
-  float avg_top = get_avg_sample(char_x * 2, char_y * 4);
-  float avg_bot = get_avg_sample(char_x * 2, char_y * 4 + 2);
+  // Inline sampling for bottom 2x2 block
+  float sum_bot = 0.0f;
+  int count_bot = 0;
+  for (int dy = 0; dy < 2; ++dy) {
+    int row_offset = (base_y_bot + dy) * hr_width;
+    for (int dx = 0; dx < 2; ++dx) {
+      int idx = row_offset + base_x + dx;
+      if (dot_buffer[idx]) {
+        sum_bot += hi_res_intensity[idx];
+        count_bot++;
+      }
+    }
+  }
+  float avg_bot = (count_bot > 0) ? (sum_bot * 0.25f) : 0.0f;
 
-  if (avg_top <= 0.0f && avg_bot <= 0.0f)
-    return " ";
+  if (avg_top <= 0.0f && avg_bot <= 0.0f) {
+    out[0] = ' ';
+    return 1;
+  }
 
   int c_top = std::clamp((int)(avg_top * 255.0f), 0, 255);
   int c_bot = std::clamp((int)(avg_bot * 255.0f), 0, 255);
 
-  std::string result;
-  result += "\x1b[38;2;" + std::to_string(c_top) + ";" + std::to_string(c_top) +
-            ";" + std::to_string(c_top) + "m";
-  result += "\x1b[48;2;" + std::to_string(c_bot) + ";" + std::to_string(c_bot) +
-            ";" + std::to_string(c_bot) + "m";
-  result += "▀";
-  result += "\x1b[0m";
-  return result;
+  char *p = out;
+
+  // Foreground: \x1b[38;2;R;G;Bm
+  *p++ = '\x1b';
+  *p++ = '[';
+  *p++ = '3';
+  *p++ = '8';
+  *p++ = ';';
+  *p++ = '2';
+  *p++ = ';';
+  p = write_uint8(p, c_top);
+  *p++ = ';';
+  p = write_uint8(p, c_top);
+  *p++ = ';';
+  p = write_uint8(p, c_top);
+  *p++ = 'm';
+
+  // Background: \x1b[48;2;R;G;Bm
+  *p++ = '\x1b';
+  *p++ = '[';
+  *p++ = '4';
+  *p++ = '8';
+  *p++ = ';';
+  *p++ = '2';
+  *p++ = ';';
+  p = write_uint8(p, c_bot);
+  *p++ = ';';
+  p = write_uint8(p, c_bot);
+  *p++ = ';';
+  p = write_uint8(p, c_bot);
+  *p++ = 'm';
+
+  // Upper half block (▀) UTF-8: E2 96 80
+  *p++ = '\xe2';
+  *p++ = '\x96';
+  *p++ = '\x80';
+
+  // Reset: \x1b[0m
+  *p++ = '\x1b';
+  *p++ = '[';
+  *p++ = '0';
+  *p++ = 'm';
+
+  return static_cast<int>(p - out);
 }
 
 inline std::optional<Eigen::Vector3f>

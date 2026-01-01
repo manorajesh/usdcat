@@ -63,9 +63,8 @@ private:
   // geometry keyed by Usd path
   std::map<pxr::SdfPath, MeshData> meshes;
 
-  // display variables
-  std::vector<std::string> framebuffer;
-  // std::vector<std::string> previous_framebuffer;
+  // strings
+  std::string output_buffer;
   std::vector<float> zbuffer;
   std::vector<float> intensity_buffer;
 
@@ -104,8 +103,10 @@ private:
 
   Eigen::Vector2f to_screen(Eigen::Vector2f ndc);
   Eigen::Vector2f to_hi_res_screen(Eigen::Vector2f ndc);
-  std::string get_colored_braille_char(int char_x, int char_y);
-  std::string get_colored_block_char(int char_x, int char_y);
+
+  // Write character directly to output buffer
+  int write_colored_braille_char(char *out, int char_x, int char_y);
+  int write_colored_block_char(char *out, int char_x, int char_y);
 
   std::optional<Eigen::Vector3f> barycentric(const Eigen::Vector2f &p,
                                              const Eigen::Vector2f &a,
