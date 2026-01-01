@@ -1,6 +1,8 @@
 #include "renderer.h"
 #include <algorithm>
 #include <cstring>
+#include <thread>
+#include <vector>
 
 #if defined(__x86_64__) || defined(_M_X64)
 #include <immintrin.h>
@@ -9,6 +11,214 @@
 #include <arm_neon.h>
 #define USE_NEON 1
 #endif
+
+// Pre-transformed triangle for rasterization
+struct RasterTri {
+  float s0x, s0y, s1x, s1y, s2x, s2y;  // Screen coords
+  float z0, z1, z2;                      // Depths
+  float v0x, v0y, v1x, v1y, inv_den;     // Barycentric precomputed
+  float lambert;                         // Lighting
+  int minx, maxx, miny, maxy;            // Bounding box
+};
+
+// Rasterize triangles within a horizontal band [band_miny, band_maxy]
+static void rasterize_band(const std::vector<RasterTri>& tris,
+                           int band_miny, int band_maxy,
+                           int hr_width,
+                           float* hi_res_zbuffer,
+                           uint8_t* dot_buffer,
+                           float* hi_res_intensity) {
+  for (const auto& tri : tris) {
+    // Skip if triangle doesn't overlap this band
+    if (tri.maxy < band_miny || tri.miny > band_maxy)
+      continue;
+
+    // Clamp to band
+    const int miny = std::max(tri.miny, band_miny);
+    const int maxy = std::min(tri.maxy, band_maxy);
+    const int minx = tri.minx;
+    const int maxx = tri.maxx;
+
+#if defined(USE_NEON)
+    const float32x4_t v0x_vec = vdupq_n_f32(tri.v0x);
+    const float32x4_t v0y_vec = vdupq_n_f32(tri.v0y);
+    const float32x4_t v1x_vec = vdupq_n_f32(tri.v1x);
+    const float32x4_t v1y_vec = vdupq_n_f32(tri.v1y);
+    const float32x4_t inv_den_vec = vdupq_n_f32(tri.inv_den);
+    const float32x4_t s0x_vec = vdupq_n_f32(tri.s0x);
+    const float32x4_t s0y_vec = vdupq_n_f32(tri.s0y);
+    const float32x4_t z0_vec = vdupq_n_f32(tri.z0);
+    const float32x4_t z1_vec = vdupq_n_f32(tri.z1);
+    const float32x4_t z2_vec = vdupq_n_f32(tri.z2);
+    const float32x4_t one_vec = vdupq_n_f32(1.0f);
+    const float32x4_t zero_vec = vdupq_n_f32(0.0f);
+    const float32x4_t offset = {0.5f, 1.5f, 2.5f, 3.5f};
+
+    for (int py = miny; py <= maxy; ++py) {
+      const float32x4_t v2y_vec = vsubq_f32(vdupq_n_f32(py + 0.5f), s0y_vec);
+      const int row_offset = py * hr_width;
+
+      int px = minx;
+      for (; px <= maxx - 3; px += 4) {
+        float32x4_t px_vec = vaddq_f32(vdupq_n_f32((float)px), offset);
+        float32x4_t v2x_vec = vsubq_f32(px_vec, s0x_vec);
+
+        float32x4_t v = vmulq_f32(
+            vsubq_f32(vmulq_f32(v2x_vec, v1y_vec), vmulq_f32(v2y_vec, v1x_vec)),
+            inv_den_vec);
+        float32x4_t w = vmulq_f32(
+            vsubq_f32(vmulq_f32(v0x_vec, v2y_vec), vmulq_f32(v0y_vec, v2x_vec)),
+            inv_den_vec);
+        float32x4_t u = vsubq_f32(vsubq_f32(one_vec, v), w);
+
+        uint32x4_t mask = vandq_u32(vandq_u32(vcgeq_f32(u, zero_vec),
+                                               vcgeq_f32(v, zero_vec)),
+                                     vcgeq_f32(w, zero_vec));
+        if (vmaxvq_u32(mask) == 0)
+          continue;
+
+        float32x4_t depth = vaddq_f32(
+            vaddq_f32(vmulq_f32(u, z0_vec), vmulq_f32(v, z1_vec)),
+            vmulq_f32(w, z2_vec));
+
+        alignas(16) float depths[4];
+        alignas(16) uint32_t masks[4];
+        vst1q_f32(depths, depth);
+        vst1q_u32(masks, mask);
+
+        for (int i = 0; i < 4; ++i) {
+          if (masks[i]) {
+            int k_dot = row_offset + px + i;
+            if (depths[i] < hi_res_zbuffer[k_dot]) {
+              hi_res_zbuffer[k_dot] = depths[i];
+              dot_buffer[k_dot] = 1;
+              hi_res_intensity[k_dot] = tri.lambert;
+            }
+          }
+        }
+      }
+
+      // Remainder
+      for (; px <= maxx; ++px) {
+        float v2x = px + 0.5f - tri.s0x;
+        float v2y_s = py + 0.5f - tri.s0y;
+        float v = (v2x * tri.v1y - v2y_s * tri.v1x) * tri.inv_den;
+        float w = (tri.v0x * v2y_s - tri.v0y * v2x) * tri.inv_den;
+        float u = 1.0f - v - w;
+        if (u >= 0.0f && v >= 0.0f && w >= 0.0f) {
+          float depth = u * tri.z0 + v * tri.z1 + w * tri.z2;
+          int k_dot = row_offset + px;
+          if (depth < hi_res_zbuffer[k_dot]) {
+            hi_res_zbuffer[k_dot] = depth;
+            dot_buffer[k_dot] = 1;
+            hi_res_intensity[k_dot] = tri.lambert;
+          }
+        }
+      }
+    }
+
+#elif defined(USE_SSE)
+    const __m128 v0x_vec = _mm_set1_ps(tri.v0x);
+    const __m128 v0y_vec = _mm_set1_ps(tri.v0y);
+    const __m128 v1x_vec = _mm_set1_ps(tri.v1x);
+    const __m128 v1y_vec = _mm_set1_ps(tri.v1y);
+    const __m128 inv_den_vec = _mm_set1_ps(tri.inv_den);
+    const __m128 s0x_vec = _mm_set1_ps(tri.s0x);
+    const __m128 s0y_vec = _mm_set1_ps(tri.s0y);
+    const __m128 z0_vec = _mm_set1_ps(tri.z0);
+    const __m128 z1_vec = _mm_set1_ps(tri.z1);
+    const __m128 z2_vec = _mm_set1_ps(tri.z2);
+    const __m128 one_vec = _mm_set1_ps(1.0f);
+    const __m128 zero_vec = _mm_setzero_ps();
+    const __m128 offset = _mm_set_ps(3.5f, 2.5f, 1.5f, 0.5f);
+
+    for (int py = miny; py <= maxy; ++py) {
+      const __m128 v2y_vec = _mm_sub_ps(_mm_set1_ps(py + 0.5f), s0y_vec);
+      const int row_offset = py * hr_width;
+
+      int px = minx;
+      for (; px <= maxx - 3; px += 4) {
+        __m128 px_vec = _mm_add_ps(_mm_set1_ps((float)px), offset);
+        __m128 v2x_vec = _mm_sub_ps(px_vec, s0x_vec);
+
+        __m128 v = _mm_mul_ps(
+            _mm_sub_ps(_mm_mul_ps(v2x_vec, v1y_vec), _mm_mul_ps(v2y_vec, v1x_vec)),
+            inv_den_vec);
+        __m128 w = _mm_mul_ps(
+            _mm_sub_ps(_mm_mul_ps(v0x_vec, v2y_vec), _mm_mul_ps(v0y_vec, v2x_vec)),
+            inv_den_vec);
+        __m128 u = _mm_sub_ps(_mm_sub_ps(one_vec, v), w);
+
+        __m128 mask = _mm_and_ps(
+            _mm_and_ps(_mm_cmpge_ps(u, zero_vec), _mm_cmpge_ps(v, zero_vec)),
+            _mm_cmpge_ps(w, zero_vec));
+        if (_mm_movemask_ps(mask) == 0)
+          continue;
+
+        __m128 depth = _mm_add_ps(
+            _mm_add_ps(_mm_mul_ps(u, z0_vec), _mm_mul_ps(v, z1_vec)),
+            _mm_mul_ps(w, z2_vec));
+
+        alignas(16) float depths[4];
+        alignas(16) float masks_f[4];
+        _mm_store_ps(depths, depth);
+        _mm_store_ps(masks_f, mask);
+
+        for (int i = 0; i < 4; ++i) {
+          if (masks_f[i] != 0.0f) {
+            int k_dot = row_offset + px + i;
+            if (depths[i] < hi_res_zbuffer[k_dot]) {
+              hi_res_zbuffer[k_dot] = depths[i];
+              dot_buffer[k_dot] = 1;
+              hi_res_intensity[k_dot] = tri.lambert;
+            }
+          }
+        }
+      }
+
+      // Remainder
+      for (; px <= maxx; ++px) {
+        float v2x = px + 0.5f - tri.s0x;
+        float v2y_s = py + 0.5f - tri.s0y;
+        float v = (v2x * tri.v1y - v2y_s * tri.v1x) * tri.inv_den;
+        float w = (tri.v0x * v2y_s - tri.v0y * v2x) * tri.inv_den;
+        float u = 1.0f - v - w;
+        if (u >= 0.0f && v >= 0.0f && w >= 0.0f) {
+          float depth = u * tri.z0 + v * tri.z1 + w * tri.z2;
+          int k_dot = row_offset + px;
+          if (depth < hi_res_zbuffer[k_dot]) {
+            hi_res_zbuffer[k_dot] = depth;
+            dot_buffer[k_dot] = 1;
+            hi_res_intensity[k_dot] = tri.lambert;
+          }
+        }
+      }
+    }
+
+#else
+    // Scalar fallback
+    for (int py = miny; py <= maxy; ++py) {
+      const int row_offset = py * hr_width;
+      const float v2y_s = py + 0.5f - tri.s0y;
+      for (int px = minx; px <= maxx; ++px) {
+        float v2x = px + 0.5f - tri.s0x;
+        float v = (v2x * tri.v1y - v2y_s * tri.v1x) * tri.inv_den;
+        float w = (tri.v0x * v2y_s - tri.v0y * v2x) * tri.inv_den;
+        float u = 1.0f - v - w;
+        if (u >= 0.0f && v >= 0.0f && w >= 0.0f) {
+          float depth = u * tri.z0 + v * tri.z1 + w * tri.z2;
+          int k_dot = row_offset + px;
+          if (depth < hi_res_zbuffer[k_dot]) {
+            hi_res_zbuffer[k_dot] = depth;
+            dot_buffer[k_dot] = 1;
+            hi_res_intensity[k_dot] = tri.lambert;
+          }
+        }
+      }
+    }
+#endif
+  }
+}
 
 static inline char *write_uint8(char *buf, int val) {
   if (val >= 100) {
@@ -70,15 +280,16 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
 
   Eigen::Vector3f light_dir = Eigen::Vector3f(0.4, 0.6, 0.2).normalized();
 
+  // Phase 1: Pre-transform all triangles (single-threaded vertex processing)
+  std::vector<RasterTri> raster_tris;
+  raster_tris.reserve(1024);  // Reasonable initial capacity
+
   for (auto const &[path, m] : meshes) {
     for (auto const &tri : m.indices) {
-      // 1. Get Local Vertices
       Eigen::Vector3f local0 = m.vertices[tri(0)];
       Eigen::Vector3f local1 = m.vertices[tri(1)];
       Eigen::Vector3f local2 = m.vertices[tri(2)];
 
-      // 2. Transform to WORLD Space using the matrix Hydra gave us
-      // We use .homogeneous() to multiply a 3f by a 4f matrix
       Eigen::Vector3f p0 = (m.worldTransform * local0.homogeneous()).head<3>();
       Eigen::Vector3f p1 = (m.worldTransform * local1.homogeneous()).head<3>();
       Eigen::Vector3f p2 = (m.worldTransform * local2.homogeneous()).head<3>();
@@ -86,14 +297,10 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
       Eigen::Vector3f n = (p1 - p0).cross(p2 - p0).normalized();
       float lambert = std::max(0.0f, n.dot(light_dir));
 
-      // backface culling
       Eigen::Vector3f v0 = world_to_view(p0);
       Eigen::Vector3f v1 = world_to_view(p1);
       Eigen::Vector3f v2 = world_to_view(p2);
-      // compute signed area in screen-ish space later; cheap view-space cull:
-      // if normal points away from camera, skip
-      // camera looks down -Z in view space, so facing camera means normal has
-      // negative z in view
+
       Eigen::Vector3f n_view = (v1 - v0).cross(v2 - v0);
       if (n_view.z() <= 0)
         continue;
@@ -119,228 +326,61 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
       int maxy = std::min(hi_res_dims.y() - 1,
                           std::max({(int)s0.y(), (int)s1.y(), (int)s2.y()}));
 
-      // Precompute barycentric constants (invariant across all pixels)
-      const float v0x = s1.x() - s0.x();
-      const float v0y = s1.y() - s0.y();
-      const float v1x = s2.x() - s0.x();
-      const float v1y = s2.y() - s0.y();
-      const float den = v0x * v1y - v0y * v1x;
+      float edge_v0x = s1.x() - s0.x();
+      float edge_v0y = s1.y() - s0.y();
+      float edge_v1x = s2.x() - s0.x();
+      float edge_v1y = s2.y() - s0.y();
+      float den = edge_v0x * edge_v1y - edge_v0y * edge_v1x;
       if (std::abs(den) < 1e-9f)
         continue;
-      const float inv_den = 1.0f / den;
-      const float s0x = s0.x();
-      const float s0y = s0.y();
-      const float z0 = proj0.z();
-      const float z1 = proj1.z();
-      const float z2 = proj2.z();
-      const int hr_width = hi_res_dims.x();
 
-#if defined(USE_NEON)
-      // NEON: Process 4 pixels at a time
-      const float32x4_t v0x_vec = vdupq_n_f32(v0x);
-      const float32x4_t v0y_vec = vdupq_n_f32(v0y);
-      const float32x4_t v1x_vec = vdupq_n_f32(v1x);
-      const float32x4_t v1y_vec = vdupq_n_f32(v1y);
-      const float32x4_t inv_den_vec = vdupq_n_f32(inv_den);
-      const float32x4_t s0x_vec = vdupq_n_f32(s0x);
-      const float32x4_t s0y_vec = vdupq_n_f32(s0y);
-      const float32x4_t z0_vec = vdupq_n_f32(z0);
-      const float32x4_t z1_vec = vdupq_n_f32(z1);
-      const float32x4_t z2_vec = vdupq_n_f32(z2);
-      const float32x4_t one_vec = vdupq_n_f32(1.0f);
-      const float32x4_t zero_vec = vdupq_n_f32(0.0f);
-      const float32x4_t offset = {0.5f, 1.5f, 2.5f, 3.5f};
-
-      for (int py = miny; py <= maxy; ++py) {
-        const float32x4_t v2y_vec = vsubq_f32(vdupq_n_f32(py + 0.5f), s0y_vec);
-        const int row_offset = py * hr_width;
-
-        int px = minx;
-        for (; px <= maxx - 3; px += 4) {
-          float32x4_t px_vec = vaddq_f32(vdupq_n_f32((float)px), offset);
-          float32x4_t v2x_vec = vsubq_f32(px_vec, s0x_vec);
-
-          // v = (v2x * v1y - v2y * v1x) * inv_den
-          float32x4_t v = vmulq_f32(
-              vsubq_f32(vmulq_f32(v2x_vec, v1y_vec), vmulq_f32(v2y_vec, v1x_vec)),
-              inv_den_vec);
-
-          // w = (v0x * v2y - v0y * v2x) * inv_den
-          float32x4_t w = vmulq_f32(
-              vsubq_f32(vmulq_f32(v0x_vec, v2y_vec), vmulq_f32(v0y_vec, v2x_vec)),
-              inv_den_vec);
-
-          // u = 1 - v - w
-          float32x4_t u = vsubq_f32(vsubq_f32(one_vec, v), w);
-
-          // Check if inside triangle (u >= 0 && v >= 0 && w >= 0)
-          uint32x4_t mask_u = vcgeq_f32(u, zero_vec);
-          uint32x4_t mask_v = vcgeq_f32(v, zero_vec);
-          uint32x4_t mask_w = vcgeq_f32(w, zero_vec);
-          uint32x4_t mask = vandq_u32(vandq_u32(mask_u, mask_v), mask_w);
-
-          // Early exit if no pixels pass
-          if (vmaxvq_u32(mask) == 0)
-            continue;
-
-          // Compute depth: u * z0 + v * z1 + w * z2
-          float32x4_t depth = vaddq_f32(
-              vaddq_f32(vmulq_f32(u, z0_vec), vmulq_f32(v, z1_vec)),
-              vmulq_f32(w, z2_vec));
-
-          // Extract and process pixels that passed the test
-          alignas(16) float depths[4];
-          alignas(16) uint32_t masks[4];
-          vst1q_f32(depths, depth);
-          vst1q_u32(masks, mask);
-
-          for (int i = 0; i < 4; ++i) {
-            if (masks[i]) {
-              int k_dot = row_offset + px + i;
-              if (depths[i] < hi_res_zbuffer[k_dot]) {
-                hi_res_zbuffer[k_dot] = depths[i];
-                dot_buffer[k_dot] = 1;
-                hi_res_intensity[k_dot] = lambert;
-              }
-            }
-          }
-        }
-
-        // Handle remaining pixels
-        for (; px <= maxx; ++px) {
-          float v2x = px + 0.5f - s0x;
-          float v2y_s = py + 0.5f - s0y;
-          float v = (v2x * v1y - v2y_s * v1x) * inv_den;
-          float w = (v0x * v2y_s - v0y * v2x) * inv_den;
-          float u = 1.0f - v - w;
-
-          if (u >= 0.0f && v >= 0.0f && w >= 0.0f) {
-            float depth = u * z0 + v * z1 + w * z2;
-            int k_dot = row_offset + px;
-            if (depth < hi_res_zbuffer[k_dot]) {
-              hi_res_zbuffer[k_dot] = depth;
-              dot_buffer[k_dot] = 1;
-              hi_res_intensity[k_dot] = lambert;
-            }
-          }
-        }
-      }
-
-#elif defined(USE_SSE)
-      // SSE: Process 4 pixels at a time
-      const __m128 v0x_vec = _mm_set1_ps(v0x);
-      const __m128 v0y_vec = _mm_set1_ps(v0y);
-      const __m128 v1x_vec = _mm_set1_ps(v1x);
-      const __m128 v1y_vec = _mm_set1_ps(v1y);
-      const __m128 inv_den_vec = _mm_set1_ps(inv_den);
-      const __m128 s0x_vec = _mm_set1_ps(s0x);
-      const __m128 s0y_vec = _mm_set1_ps(s0y);
-      const __m128 z0_vec = _mm_set1_ps(z0);
-      const __m128 z1_vec = _mm_set1_ps(z1);
-      const __m128 z2_vec = _mm_set1_ps(z2);
-      const __m128 one_vec = _mm_set1_ps(1.0f);
-      const __m128 zero_vec = _mm_setzero_ps();
-      const __m128 offset = _mm_set_ps(3.5f, 2.5f, 1.5f, 0.5f);
-
-      for (int py = miny; py <= maxy; ++py) {
-        const __m128 v2y_vec = _mm_sub_ps(_mm_set1_ps(py + 0.5f), s0y_vec);
-        const int row_offset = py * hr_width;
-
-        int px = minx;
-        for (; px <= maxx - 3; px += 4) {
-          __m128 px_vec = _mm_add_ps(_mm_set1_ps((float)px), offset);
-          __m128 v2x_vec = _mm_sub_ps(px_vec, s0x_vec);
-
-          // v = (v2x * v1y - v2y * v1x) * inv_den
-          __m128 v = _mm_mul_ps(
-              _mm_sub_ps(_mm_mul_ps(v2x_vec, v1y_vec), _mm_mul_ps(v2y_vec, v1x_vec)),
-              inv_den_vec);
-
-          // w = (v0x * v2y - v0y * v2x) * inv_den
-          __m128 w = _mm_mul_ps(
-              _mm_sub_ps(_mm_mul_ps(v0x_vec, v2y_vec), _mm_mul_ps(v0y_vec, v2x_vec)),
-              inv_den_vec);
-
-          // u = 1 - v - w
-          __m128 u = _mm_sub_ps(_mm_sub_ps(one_vec, v), w);
-
-          // Check if inside triangle (u >= 0 && v >= 0 && w >= 0)
-          __m128 mask = _mm_and_ps(
-              _mm_and_ps(_mm_cmpge_ps(u, zero_vec), _mm_cmpge_ps(v, zero_vec)),
-              _mm_cmpge_ps(w, zero_vec));
-
-          // Early exit if no pixels pass
-          if (_mm_movemask_ps(mask) == 0)
-            continue;
-
-          // Compute depth: u * z0 + v * z1 + w * z2
-          __m128 depth = _mm_add_ps(
-              _mm_add_ps(_mm_mul_ps(u, z0_vec), _mm_mul_ps(v, z1_vec)),
-              _mm_mul_ps(w, z2_vec));
-
-          // Extract and process pixels that passed the test
-          alignas(16) float depths[4];
-          alignas(16) float masks_f[4];
-          _mm_store_ps(depths, depth);
-          _mm_store_ps(masks_f, mask);
-
-          for (int i = 0; i < 4; ++i) {
-            if (masks_f[i] != 0.0f) {
-              int k_dot = row_offset + px + i;
-              if (depths[i] < hi_res_zbuffer[k_dot]) {
-                hi_res_zbuffer[k_dot] = depths[i];
-                dot_buffer[k_dot] = 1;
-                hi_res_intensity[k_dot] = lambert;
-              }
-            }
-          }
-        }
-
-        // Handle remaining pixels
-        for (; px <= maxx; ++px) {
-          float v2x = px + 0.5f - s0x;
-          float v2y_s = py + 0.5f - s0y;
-          float v = (v2x * v1y - v2y_s * v1x) * inv_den;
-          float w = (v0x * v2y_s - v0y * v2x) * inv_den;
-          float u = 1.0f - v - w;
-
-          if (u >= 0.0f && v >= 0.0f && w >= 0.0f) {
-            float depth = u * z0 + v * z1 + w * z2;
-            int k_dot = row_offset + px;
-            if (depth < hi_res_zbuffer[k_dot]) {
-              hi_res_zbuffer[k_dot] = depth;
-              dot_buffer[k_dot] = 1;
-              hi_res_intensity[k_dot] = lambert;
-            }
-          }
-        }
-      }
-
-#else
-      // Scalar fallback (no SIMD)
-      for (int py = miny; py <= maxy; ++py) {
-        const int row_offset = py * hr_width;
-        const float v2y_s = py + 0.5f - s0y;
-
-        for (int px = minx; px <= maxx; ++px) {
-          float v2x = px + 0.5f - s0x;
-          float v = (v2x * v1y - v2y_s * v1x) * inv_den;
-          float w = (v0x * v2y_s - v0y * v2x) * inv_den;
-          float u = 1.0f - v - w;
-
-          if (u >= 0.0f && v >= 0.0f && w >= 0.0f) {
-            float depth = u * z0 + v * z1 + w * z2;
-            int k_dot = row_offset + px;
-            if (depth < hi_res_zbuffer[k_dot]) {
-              hi_res_zbuffer[k_dot] = depth;
-              dot_buffer[k_dot] = 1;
-              hi_res_intensity[k_dot] = lambert;
-            }
-          }
-        }
-      }
-#endif
+      RasterTri rt;
+      rt.s0x = s0.x(); rt.s0y = s0.y();
+      rt.s1x = s1.x(); rt.s1y = s1.y();
+      rt.s2x = s2.x(); rt.s2y = s2.y();
+      rt.z0 = proj0.z(); rt.z1 = proj1.z(); rt.z2 = proj2.z();
+      rt.v0x = edge_v0x; rt.v0y = edge_v0y;
+      rt.v1x = edge_v1x; rt.v1y = edge_v1y;
+      rt.inv_den = 1.0f / den;
+      rt.lambert = lambert;
+      rt.minx = minx; rt.maxx = maxx;
+      rt.miny = miny; rt.maxy = maxy;
+      raster_tris.push_back(rt);
     }
+  }
+
+  // Phase 2: Parallel rasterization by horizontal bands
+  const int hr_height = hi_res_dims.y();
+  const int hr_width = hi_res_dims.x();
+  const unsigned int num_threads = std::max(1u, std::thread::hardware_concurrency());
+  const int band_height = std::max(1, (hr_height + (int)num_threads - 1) / (int)num_threads);
+
+  if (raster_tris.size() > 0 && num_threads > 1) {
+    std::vector<std::thread> threads;
+    threads.reserve(num_threads);
+
+    for (unsigned int t = 0; t < num_threads; ++t) {
+      int band_miny = t * band_height;
+      int band_maxy = std::min(band_miny + band_height - 1, hr_height - 1);
+      if (band_miny > hr_height - 1)
+        break;
+
+      threads.emplace_back(rasterize_band,
+                           std::cref(raster_tris),
+                           band_miny, band_maxy,
+                           hr_width,
+                           hi_res_zbuffer.data(),
+                           dot_buffer.data(),
+                           hi_res_intensity.data());
+    }
+
+    for (auto& th : threads) {
+      th.join();
+    }
+  } else {
+    // Single-threaded fallback
+    rasterize_band(raster_tris, 0, hr_height - 1, hr_width,
+                   hi_res_zbuffer.data(), dot_buffer.data(), hi_res_intensity.data());
   }
 
   // Write directly to output_buffer
