@@ -7,12 +7,13 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
   int scale_x = (mode == RenderMode::Braille) ? 2 : 2;
   int scale_y = (mode == RenderMode::Braille) ? 4 : 4;
 
+  this->dims = dims;
+  hi_res_dims = Eigen::Vector2i(dims.x() * scale_x, dims.y() * scale_y);
+
   framebuffer.assign(dims.x() * dims.y(), "");
   zbuffer.assign(dims.x() * dims.y(), std::numeric_limits<float>::infinity());
   intensity_buffer.assign(dims.x() * dims.y(), -1.0f);
   hi_res_intensity.assign(hi_res_dims.x() * hi_res_dims.y(), 0.0f);
-  this->dims = dims;
-  hi_res_dims = Eigen::Vector2i(dims.x() * scale_x, dims.y() * scale_y);
 
   dot_buffer.assign(hi_res_dims.x() * hi_res_dims.y(), 0);
   hi_res_zbuffer.assign(hi_res_dims.x() * hi_res_dims.y(),
