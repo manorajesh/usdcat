@@ -11,7 +11,15 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -funroll-loops -flto")
+# Use -mcpu on ARM64, -march on x86
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+    set(NATIVE_OPT_FLAG "-mcpu=native")
+else()
+    set(NATIVE_OPT_FLAG "-march=native")
+endif()
+
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -funroll-loops -flto ${NATIVE_OPT_FLAG}")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -DNDEBUG ${NATIVE_OPT_FLAG}")
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     add_compile_options(-Wall -Wextra -Wpedantic)
