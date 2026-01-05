@@ -93,6 +93,7 @@ bool CameraController::handle_input(int c, Renderer &renderer,
                                     int h, bool &running) {
   bool changed = false;
   switch (c) {
+  case 3: // Ctrl+C
   case 'q':
     running = false;
     return false;
