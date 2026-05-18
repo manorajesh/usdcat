@@ -2,7 +2,10 @@
 #include "mesh.h"
 #include "screen.h"
 #include <Eigen/Dense>
+#include <algorithm>
+#include <cmath>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/usd/sdf/path.h>
@@ -11,15 +14,15 @@
 
 enum class RenderMode { Braille, HalfBlock };
 
-struct Texture {
+struct ImageTexture {
     int width = 0;
     int height = 0;
     std::vector<float> pixels; // RGB float
     bool valid = false;
 
-    // Simple Nearest Neighbor sampler
-    Eigen::Vector3f sample(float u, float v) const {
-        if (!valid || pixels.empty()) return {1, 1, 1}; // White fallback
+    Eigen::Vector3f sample(float u, float v,
+                           const Eigen::Vector3f &fallback) const {
+        if (!valid || pixels.empty()) return fallback;
 
         // Wrap (Repeat) logic
         u = u - floor(u);
@@ -35,6 +38,18 @@ struct Texture {
         int idx = (y * width + x) * 3;
         return {pixels[idx], pixels[idx+1], pixels[idx+2]};
     }
+};
+
+struct MaterialData {
+  Eigen::Vector3f baseColor = Eigen::Vector3f(0.8f, 0.8f, 0.8f);
+  Eigen::Vector3f emissiveColor = Eigen::Vector3f::Zero();
+  float metallic = 0.0f;
+  float roughness = 1.0f;
+  float occlusion = 1.0f;
+  float opacity = 1.0f;
+  ImageTexture baseColorTexture;
+  ImageTexture normalTexture;
+  ImageTexture occlusionTexture;
 };
 
 class Renderer {
@@ -67,8 +82,9 @@ public:
   std::map<pxr::SdfPath, MeshData> &get_meshes() { return meshes; }
   const std::map<pxr::SdfPath, MeshData> &get_meshes() const { return meshes; }
 
-  std::map<pxr::SdfPath, Texture> &get_textures() { return textures; }
-  const std::map<pxr::SdfPath, Texture> &get_textures() const { return textures; }
+  std::map<pxr::SdfPath, MaterialData> &get_materials() { return materials; }
+  const std::map<pxr::SdfPath, MaterialData> &get_materials() const { return materials; }
+  std::mutex &get_scene_mutex() { return scene_mutex; }
 
   void frame_scene_to_view(Eigen::Vector2i dims);
 
@@ -91,8 +107,9 @@ private:
   // geometry keyed by Usd path
   std::map<pxr::SdfPath, MeshData> meshes;
 
-  // textures keyed by material path
-  std::map<pxr::SdfPath, Texture> textures;
+  // materials keyed by material path
+  std::map<pxr::SdfPath, MaterialData> materials;
+  std::mutex scene_mutex;
 
   // strings
   std::string output_buffer;
@@ -103,7 +120,7 @@ private:
   std::vector<uint8_t> dot_buffer;
   std::vector<float> hi_res_zbuffer;
   Eigen::Vector2i hi_res_dims;
-  std::vector<float> hi_res_intensity;
+  std::vector<Eigen::Vector3f> hi_res_color;
 
   // render calculation variables
   Eigen::Vector3f eye;

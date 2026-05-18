@@ -17,11 +17,148 @@ struct RasterTri {
   float s0x, s0y, s1x, s1y, s2x, s2y;  // Screen coords
   float z0, z1, z2;                      // Depths
   float v0x, v0y, v1x, v1y, inv_den;     // Barycentric precomputed
-  float lambert;                         // Lighting
   int minx, maxx, miny, maxy;            // Bounding box
   float u0, v0_uv, u1, v1_uv, u2, v2_uv; // UV coordinates
+  Eigen::Vector3f p0, p1, p2;            // World positions
+  Eigen::Vector3f n0, n1, n2;            // World normals
+  Eigen::Vector3f tangent, bitangent;     // Tangent frame for normal maps
   pxr::SdfPath materialId;               // Material/texture ID
 };
+
+static inline float saturate(float v) { return std::clamp(v, 0.0f, 1.0f); }
+
+static inline Eigen::Vector3f saturate(const Eigen::Vector3f &v) {
+  return v.cwiseMax(0.0f).cwiseMin(1.0f);
+}
+
+static inline Eigen::Vector3f fresnel_schlick(float cosTheta,
+                                              const Eigen::Vector3f &f0) {
+  return f0 + (Eigen::Vector3f::Ones() - f0) *
+                  std::pow(1.0f - saturate(cosTheta), 5.0f);
+}
+
+static inline float distribution_ggx(float nDotH, float roughness) {
+  float a = roughness * roughness;
+  float a2 = a * a;
+  float denom = nDotH * nDotH * (a2 - 1.0f) + 1.0f;
+  return a2 / std::max(1e-4f, (float)M_PI * denom * denom);
+}
+
+static inline float geometry_schlick_ggx(float nDotV, float roughness) {
+  float r = roughness + 1.0f;
+  float k = (r * r) / 8.0f;
+  return nDotV / std::max(1e-4f, nDotV * (1.0f - k) + k);
+}
+
+static inline Eigen::Vector3f shade_preview_surface(
+    const std::map<pxr::SdfPath, MaterialData>* materials,
+    const pxr::SdfPath &materialId,
+    float texU,
+    float texV,
+    const Eigen::Vector3f &position,
+    const Eigen::Vector3f &normal,
+    const Eigen::Vector3f &tangent,
+    const Eigen::Vector3f &bitangent,
+    const Eigen::Vector3f &eye,
+    const Eigen::Vector3f &viewRight,
+    const Eigen::Vector3f &viewUp,
+    const Eigen::Vector3f &viewForward) {
+  static const MaterialData fallbackMaterial;
+  const MaterialData *mat = &fallbackMaterial;
+  if (materials) {
+    auto it = materials->find(materialId);
+    if (it != materials->end()) {
+      mat = &it->second;
+    }
+  }
+
+  Eigen::Vector3f baseColor =
+      mat->baseColorTexture.sample(texU, texV, mat->baseColor);
+  float occlusion = mat->occlusion;
+  if (mat->occlusionTexture.valid) {
+    occlusion *= mat->occlusionTexture.sample(texU, texV,
+                                              Eigen::Vector3f::Ones()).x();
+  }
+
+  Eigen::Vector3f n = normal.normalized();
+  if (mat->normalTexture.valid) {
+    Eigen::Vector3f normalSample =
+        mat->normalTexture.sample(texU, texV, Eigen::Vector3f(0.5f, 0.5f, 1.0f));
+    Eigen::Vector3f tangentNormal = normalSample * 2.0f - Eigen::Vector3f::Ones();
+    Eigen::Vector3f t = (tangent - n * n.dot(tangent)).normalized();
+    Eigen::Vector3f b = bitangent.normalized();
+    n = (t * tangentNormal.x() + b * tangentNormal.y() +
+         n * tangentNormal.z()).normalized();
+  }
+  Eigen::Vector3f v = (eye - position).normalized();
+  Eigen::Vector3f reflectedView = (2.0f * n.dot(v) * n - v).normalized();
+
+  float nDotV = std::max(0.04f, saturate(n.dot(v)));
+  float roughness = std::clamp(mat->roughness, 0.04f, 1.0f);
+  float metallic = saturate(mat->metallic);
+
+  Eigen::Vector3f f0 = Eigen::Vector3f::Constant(0.04f);
+  f0 = f0 * (1.0f - metallic) + baseColor * metallic;
+
+  auto evaluateLight = [&](const Eigen::Vector3f &lightDir,
+                           const Eigen::Vector3f &radiance) -> Eigen::Vector3f {
+    Eigen::Vector3f l = lightDir.normalized();
+    Eigen::Vector3f h = (v + l).normalized();
+    float nDotL = saturate(n.dot(l));
+    if (nDotL <= 0.0f) {
+      return Eigen::Vector3f::Zero();
+    }
+    float nDotH = saturate(n.dot(h));
+    float hDotV = saturate(h.dot(v));
+    Eigen::Vector3f f = fresnel_schlick(hDotV, f0);
+    float d = distribution_ggx(nDotH, roughness);
+    float g = geometry_schlick_ggx(nDotV, roughness) *
+              geometry_schlick_ggx(nDotL, roughness);
+    Eigen::Vector3f specular =
+        (d * g / std::max(1e-4f, 4.0f * nDotV * nDotL)) * f;
+    Eigen::Vector3f kd =
+        (Eigen::Vector3f::Ones() - f) * (1.0f - metallic);
+    Eigen::Vector3f diffuse =
+        kd.cwiseProduct(baseColor) * (1.0f / (float)M_PI);
+    Eigen::Vector3f result = (diffuse + specular).cwiseProduct(radiance) * nDotL;
+    return result;
+  };
+
+  Eigen::Vector3f keyDir =
+      (viewForward * 0.45f + viewUp * 0.75f - viewRight * 0.35f).normalized();
+  Eigen::Vector3f fillDir =
+      (viewForward * 0.35f + viewUp * 0.25f + viewRight * 0.65f).normalized();
+  Eigen::Vector3f rimDir =
+      (-viewForward * 0.45f + viewUp * 0.55f + viewRight * 0.10f).normalized();
+
+  Eigen::Vector3f direct =
+      evaluateLight(keyDir, Eigen::Vector3f(3.0f, 2.95f, 2.85f)) +
+      evaluateLight(fillDir, Eigen::Vector3f(0.85f, 0.95f, 1.08f)) +
+      evaluateLight(rimDir, Eigen::Vector3f(1.25f, 1.30f, 1.35f));
+
+  float hemi = saturate(0.5f + 0.5f * n.dot(viewUp));
+  Eigen::Vector3f skyDiffuse(0.46f, 0.50f, 0.54f);
+  Eigen::Vector3f groundDiffuse(0.10f, 0.095f, 0.085f);
+  Eigen::Vector3f hemiDiffuse =
+      (groundDiffuse * (1.0f - hemi) + skyDiffuse * hemi)
+          .cwiseProduct(baseColor) *
+      (1.0f - 0.75f * metallic) * occlusion;
+
+  float horizon = saturate(0.5f + 0.5f * reflectedView.dot(viewUp));
+  float keyGlint = std::pow(saturate(reflectedView.dot(keyDir)), 18.0f);
+  float rimGlint = std::pow(saturate(reflectedView.dot(rimDir)), 10.0f);
+  Eigen::Vector3f envColor =
+      Eigen::Vector3f(0.10f, 0.11f, 0.12f) * (1.0f - horizon) +
+      Eigen::Vector3f(0.72f, 0.74f, 0.76f) * horizon;
+  Eigen::Vector3f envSpec =
+      envColor.cwiseProduct(f0) * (0.35f + 0.85f * metallic) *
+          (1.0f - 0.55f * roughness) +
+      Eigen::Vector3f::Ones() * (keyGlint + rimGlint * 0.6f) * metallic *
+          (1.0f - roughness);
+  Eigen::Vector3f color =
+      hemiDiffuse + direct + envSpec + mat->emissiveColor;
+  return saturate(color);
+}
 
 // Rasterize triangles within a horizontal band [band_miny, band_maxy]
 static void rasterize_band(const std::vector<RasterTri>& tris,
@@ -29,8 +166,12 @@ static void rasterize_band(const std::vector<RasterTri>& tris,
                            int hr_width,
                            float* hi_res_zbuffer,
                            uint8_t* dot_buffer,
-                           float* hi_res_intensity,
-                           const std::map<pxr::SdfPath, Texture>* textures) {
+                           Eigen::Vector3f* hi_res_color,
+                           const std::map<pxr::SdfPath, MaterialData>* materials,
+                           const Eigen::Vector3f eye,
+                           const Eigen::Vector3f viewRight,
+                           const Eigen::Vector3f viewUp,
+                           const Eigen::Vector3f viewForward) {
   for (const auto& tri : tris) {
     // Skip if triangle doesn't overlap this band
     if (tri.maxy < band_miny || tri.miny > band_maxy)
@@ -42,210 +183,6 @@ static void rasterize_band(const std::vector<RasterTri>& tris,
     const int minx = tri.minx;
     const int maxx = tri.maxx;
 
-#if defined(USE_NEON)
-    const float32x4_t v0x_vec = vdupq_n_f32(tri.v0x);
-    const float32x4_t v0y_vec = vdupq_n_f32(tri.v0y);
-    const float32x4_t v1x_vec = vdupq_n_f32(tri.v1x);
-    const float32x4_t v1y_vec = vdupq_n_f32(tri.v1y);
-    const float32x4_t inv_den_vec = vdupq_n_f32(tri.inv_den);
-    const float32x4_t s0x_vec = vdupq_n_f32(tri.s0x);
-    const float32x4_t s0y_vec = vdupq_n_f32(tri.s0y);
-    const float32x4_t z0_vec = vdupq_n_f32(tri.z0);
-    const float32x4_t z1_vec = vdupq_n_f32(tri.z1);
-    const float32x4_t z2_vec = vdupq_n_f32(tri.z2);
-    const float32x4_t one_vec = vdupq_n_f32(1.0f);
-    const float32x4_t zero_vec = vdupq_n_f32(0.0f);
-    const float32x4_t offset = {0.5f, 1.5f, 2.5f, 3.5f};
-
-    for (int py = miny; py <= maxy; ++py) {
-      const float32x4_t v2y_vec = vsubq_f32(vdupq_n_f32(py + 0.5f), s0y_vec);
-      const int row_offset = py * hr_width;
-
-      int px = minx;
-      for (; px <= maxx - 3; px += 4) {
-        float32x4_t px_vec = vaddq_f32(vdupq_n_f32((float)px), offset);
-        float32x4_t v2x_vec = vsubq_f32(px_vec, s0x_vec);
-
-        float32x4_t v = vmulq_f32(
-            vsubq_f32(vmulq_f32(v2x_vec, v1y_vec), vmulq_f32(v2y_vec, v1x_vec)),
-            inv_den_vec);
-        float32x4_t w = vmulq_f32(
-            vsubq_f32(vmulq_f32(v0x_vec, v2y_vec), vmulq_f32(v0y_vec, v2x_vec)),
-            inv_den_vec);
-        float32x4_t u = vsubq_f32(vsubq_f32(one_vec, v), w);
-
-        uint32x4_t mask = vandq_u32(vandq_u32(vcgeq_f32(u, zero_vec),
-                                               vcgeq_f32(v, zero_vec)),
-                                     vcgeq_f32(w, zero_vec));
-        if (vmaxvq_u32(mask) == 0)
-          continue;
-
-        float32x4_t depth = vaddq_f32(
-            vaddq_f32(vmulq_f32(u, z0_vec), vmulq_f32(v, z1_vec)),
-            vmulq_f32(w, z2_vec));
-
-        alignas(16) float depths[4];
-        alignas(16) uint32_t masks[4];
-        vst1q_f32(depths, depth);
-        vst1q_u32(masks, mask);
-
-        alignas(16) float us[4], vs[4], ws[4];
-        vst1q_f32(us, u);
-        vst1q_f32(vs, v);
-        vst1q_f32(ws, w);
-
-        for (int i = 0; i < 4; ++i) {
-          if (masks[i]) {
-            int k_dot = row_offset + px + i;
-            if (depths[i] < hi_res_zbuffer[k_dot]) {
-              hi_res_zbuffer[k_dot] = depths[i];
-              dot_buffer[k_dot] = 1;
-              
-              // Interpolate UVs and sample texture
-              float tex_u = us[i] * tri.u0 + vs[i] * tri.u1 + ws[i] * tri.u2;
-              float tex_v = us[i] * tri.v0_uv + vs[i] * tri.v1_uv + ws[i] * tri.v2_uv;
-              
-              Eigen::Vector3f textureColor(1,1,1);
-              if (textures && textures->count(tri.materialId)) {
-                const Texture &tex = textures->at(tri.materialId);
-                textureColor = tex.sample(tex_u, tex_v);
-              }
-              
-              float intensity = tri.lambert * textureColor.mean();
-              hi_res_intensity[k_dot] = intensity;
-            }
-          }
-        }
-      }
-
-      // Remainder
-      for (; px <= maxx; ++px) {
-        float v2x = px + 0.5f - tri.s0x;
-        float v2y_s = py + 0.5f - tri.s0y;
-        float v = (v2x * tri.v1y - v2y_s * tri.v1x) * tri.inv_den;
-        float w = (tri.v0x * v2y_s - tri.v0y * v2x) * tri.inv_den;
-        float u = 1.0f - v - w;
-        if (u >= 0.0f && v >= 0.0f && w >= 0.0f) {
-          float depth = u * tri.z0 + v * tri.z1 + w * tri.z2;
-          int k_dot = row_offset + px;
-          if (depth < hi_res_zbuffer[k_dot]) {
-            hi_res_zbuffer[k_dot] = depth;
-            dot_buffer[k_dot] = 1;
-            hi_res_intensity[k_dot] = tri.lambert;
-          }
-        }
-      }
-    }
-
-#elif defined(USE_SSE)
-    const __m128 v0x_vec = _mm_set1_ps(tri.v0x);
-    const __m128 v0y_vec = _mm_set1_ps(tri.v0y);
-    const __m128 v1x_vec = _mm_set1_ps(tri.v1x);
-    const __m128 v1y_vec = _mm_set1_ps(tri.v1y);
-    const __m128 inv_den_vec = _mm_set1_ps(tri.inv_den);
-    const __m128 s0x_vec = _mm_set1_ps(tri.s0x);
-    const __m128 s0y_vec = _mm_set1_ps(tri.s0y);
-    const __m128 z0_vec = _mm_set1_ps(tri.z0);
-    const __m128 z1_vec = _mm_set1_ps(tri.z1);
-    const __m128 z2_vec = _mm_set1_ps(tri.z2);
-    const __m128 one_vec = _mm_set1_ps(1.0f);
-    const __m128 zero_vec = _mm_setzero_ps();
-    const __m128 offset = _mm_set_ps(3.5f, 2.5f, 1.5f, 0.5f);
-
-    for (int py = miny; py <= maxy; ++py) {
-      const __m128 v2y_vec = _mm_sub_ps(_mm_set1_ps(py + 0.5f), s0y_vec);
-      const int row_offset = py * hr_width;
-
-      int px = minx;
-      for (; px <= maxx - 3; px += 4) {
-        __m128 px_vec = _mm_add_ps(_mm_set1_ps((float)px), offset);
-        __m128 v2x_vec = _mm_sub_ps(px_vec, s0x_vec);
-
-        __m128 v = _mm_mul_ps(
-            _mm_sub_ps(_mm_mul_ps(v2x_vec, v1y_vec), _mm_mul_ps(v2y_vec, v1x_vec)),
-            inv_den_vec);
-        __m128 w = _mm_mul_ps(
-            _mm_sub_ps(_mm_mul_ps(v0x_vec, v2y_vec), _mm_mul_ps(v0y_vec, v2x_vec)),
-            inv_den_vec);
-        __m128 u = _mm_sub_ps(_mm_sub_ps(one_vec, v), w);
-
-        __m128 mask = _mm_and_ps(
-            _mm_and_ps(_mm_cmpge_ps(u, zero_vec), _mm_cmpge_ps(v, zero_vec)),
-            _mm_cmpge_ps(w, zero_vec));
-        if (_mm_movemask_ps(mask) == 0)
-          continue;
-
-        __m128 depth = _mm_add_ps(
-            _mm_add_ps(_mm_mul_ps(u, z0_vec), _mm_mul_ps(v, z1_vec)),
-            _mm_mul_ps(w, z2_vec));
-
-        alignas(16) float depths[4];
-        alignas(16) float masks_f[4];
-        _mm_store_ps(depths, depth);
-        _mm_store_ps(masks_f, mask);
-
-        alignas(16) float us[4], vs[4], ws[4];
-        _mm_store_ps(us, u);
-        _mm_store_ps(vs, v);
-        _mm_store_ps(ws, w);
-
-        for (int i = 0; i < 4; ++i) {
-          if (masks_f[i] != 0.0f) {
-            int k_dot = row_offset + px + i;
-            if (depths[i] < hi_res_zbuffer[k_dot]) {
-              hi_res_zbuffer[k_dot] = depths[i];
-              dot_buffer[k_dot] = 1;
-              
-              // Interpolate UVs and sample texture
-              float tex_u = us[i] * tri.u0 + vs[i] * tri.u1 + ws[i] * tri.u2;
-              float tex_v = us[i] * tri.v0_uv + vs[i] * tri.v1_uv + ws[i] * tri.v2_uv;
-              
-              Eigen::Vector3f textureColor(1,1,1);
-              if (textures && textures->count(tri.materialId)) {
-                const Texture &tex = textures->at(tri.materialId);
-                textureColor = tex.sample(tex_u, tex_v);
-              }
-              
-              float intensity = tri.lambert * textureColor.mean();
-              hi_res_intensity[k_dot] = intensity;
-            }
-          }
-        }
-      }
-
-      // Remainder
-      for (; px <= maxx; ++px) {
-        float v2x = px + 0.5f - tri.s0x;
-        float v2y_s = py + 0.5f - tri.s0y;
-        float v = (v2x * tri.v1y - v2y_s * tri.v1x) * tri.inv_den;
-        float w = (tri.v0x * v2y_s - tri.v0y * v2x) * tri.inv_den;
-        float u = 1.0f - v - w;
-        if (u >= 0.0f && v >= 0.0f && w >= 0.0f) {
-          float depth = u * tri.z0 + v * tri.z1 + w * tri.z2;
-          int k_dot = row_offset + px;
-          if (depth < hi_res_zbuffer[k_dot]) {
-            hi_res_zbuffer[k_dot] = depth;
-            dot_buffer[k_dot] = 1;
-            
-            // Interpolate UVs and sample texture
-            float tex_u = u * tri.u0 + v * tri.u1 + w * tri.u2;
-            float tex_v = u * tri.v0_uv + v * tri.v1_uv + w * tri.v2_uv;
-            
-            Eigen::Vector3f textureColor(1,1,1);
-            if (textures && textures->count(tri.materialId)) {
-              const Texture &tex = textures->at(tri.materialId);
-              textureColor = tex.sample(tex_u, tex_v);
-            }
-            
-            float intensity = tri.lambert * textureColor.mean();
-            hi_res_intensity[k_dot] = intensity;
-          }
-        }
-      }
-    }
-
-#else
-    // Scalar fallback
     for (int py = miny; py <= maxy; ++py) {
       const int row_offset = py * hr_width;
       const float v2y_s = py + 0.5f - tri.s0y;
@@ -261,24 +198,21 @@ static void rasterize_band(const std::vector<RasterTri>& tris,
             hi_res_zbuffer[k_dot] = depth;
             dot_buffer[k_dot] = 1;
             
-            // Interpolate UVs and sample texture
             float tex_u = u * tri.u0 + v * tri.u1 + w * tri.u2;
             float tex_v = u * tri.v0_uv + v * tri.v1_uv + w * tri.v2_uv;
-            
-            Eigen::Vector3f textureColor(1,1,1);
-            if (textures && textures->count(tri.materialId)) {
-              const Texture &tex = textures->at(tri.materialId);
-              textureColor = tex.sample(tex_u, tex_v);
-            }
-            
-            float intensity = tri.lambert * textureColor.mean();
-            hi_res_intensity[k_dot] = intensity;
-          }
+            Eigen::Vector3f position = u * tri.p0 + v * tri.p1 + w * tri.p2;
+            Eigen::Vector3f normal =
+                (u * tri.n0 + v * tri.n1 + w * tri.n2).normalized();
+
+            hi_res_color[k_dot] =
+                shade_preview_surface(materials, tri.materialId, tex_u, tex_v,
+                                      position, normal, tri.tangent,
+                                      tri.bitangent, eye, viewRight, viewUp,
+                                      viewForward);
           }
         }
       }
     }
-#endif
   }
 }
 
@@ -313,7 +247,7 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
   intensity_buffer.resize(fb_size);
   dot_buffer.resize(hr_size);
   hi_res_zbuffer.resize(hr_size);
-  hi_res_intensity.resize(hr_size);
+  hi_res_color.resize(hr_size);
 
   // Fast clear with memset
   std::fill(zbuffer.begin(), zbuffer.end(),
@@ -322,11 +256,13 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
   std::memset(dot_buffer.data(), 0, hr_size);
   std::fill(hi_res_zbuffer.begin(), hi_res_zbuffer.end(),
             std::numeric_limits<float>::infinity());
-  std::memset(hi_res_intensity.data(), 0, hr_size * sizeof(float));
+  std::fill(hi_res_color.begin(), hi_res_color.end(), Eigen::Vector3f::Zero());
 
   // Reserve output buffer (max ~50 bytes per cell + newlines)
   output_buffer.clear();
   output_buffer.reserve(dims.x() * dims.y() * 52 + dims.y() * 2);
+
+  std::lock_guard<std::mutex> sceneLock(scene_mutex);
 
   // update target and eye
   if (!has_hydra_camera) {
@@ -339,15 +275,17 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
   // Correct for non-square terminal characters (typically 1x2 ratio)
   float aspect = 0.5f * (float)dims.x() / std::max(1.0f, (float)dims.y());
   float fov_y = has_hydra_camera ? hydra_fov_y : FOV;
-
-  Eigen::Vector3f light_dir = Eigen::Vector3f(0.4, 0.6, 0.2).normalized();
+  Eigen::Vector3f viewForward = -fneg.normalized();
+  Eigen::Vector3f viewRight = r.normalized();
+  Eigen::Vector3f viewUp = u.normalized();
 
   // Phase 1: Pre-transform all triangles (single-threaded vertex processing)
   std::vector<RasterTri> raster_tris;
   raster_tris.reserve(1024);  // Reasonable initial capacity
 
   for (auto const &[path, m] : meshes) {
-    for (auto const &tri : m.indices) {
+    for (size_t triIndex = 0; triIndex < m.indices.size(); ++triIndex) {
+      const auto &tri = m.indices[triIndex];
       Eigen::Vector3f local0 = m.vertices[tri(0)];
       Eigen::Vector3f local1 = m.vertices[tri(1)];
       Eigen::Vector3f local2 = m.vertices[tri(2)];
@@ -356,8 +294,22 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
       Eigen::Vector3f p1 = (m.worldTransform * local1.homogeneous()).head<3>();
       Eigen::Vector3f p2 = (m.worldTransform * local2.homogeneous()).head<3>();
 
-      Eigen::Vector3f n = (p1 - p0).cross(p2 - p0).normalized();
-      float lambert = std::max(0.0f, n.dot(light_dir));
+      Eigen::Vector3f faceNormal = (p1 - p0).cross(p2 - p0).normalized();
+      Eigen::Matrix3f normalMatrix =
+          m.worldTransform.block<3, 3>(0, 0).inverse().transpose();
+      Eigen::Vector3f n0 = faceNormal;
+      Eigen::Vector3f n1 = faceNormal;
+      Eigen::Vector3f n2 = faceNormal;
+      const bool hasNormalIndices = triIndex < m.normalIndices.size();
+      const Eigen::Vector3i normalTri =
+          hasNormalIndices ? m.normalIndices[triIndex] : tri;
+      if (!m.normals.empty() &&
+          m.normals.size() >
+              (size_t)std::max({normalTri(0), normalTri(1), normalTri(2)})) {
+        n0 = (normalMatrix * m.normals[normalTri(0)]).normalized();
+        n1 = (normalMatrix * m.normals[normalTri(1)]).normalized();
+        n2 = (normalMatrix * m.normals[normalTri(2)]).normalized();
+      }
 
       Eigen::Vector3f v0 = world_to_view(p0);
       Eigen::Vector3f v1 = world_to_view(p1);
@@ -404,23 +356,43 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
       rt.v0x = edge_v0x; rt.v0y = edge_v0y;
       rt.v1x = edge_v1x; rt.v1y = edge_v1y;
       rt.inv_den = 1.0f / den;
-      rt.lambert = lambert;
       rt.minx = minx; rt.maxx = maxx;
       rt.miny = miny; rt.maxy = maxy;
+      rt.p0 = p0; rt.p1 = p1; rt.p2 = p2;
+      rt.n0 = n0; rt.n1 = n1; rt.n2 = n2;
       
       // Extract UV coordinates if available
-      if (!m.uvs.empty() && m.uvs.size() > (size_t)std::max({tri(0), tri(1), tri(2)})) {
-        rt.u0 = m.uvs[tri(0)].x();
-        rt.v0_uv = m.uvs[tri(0)].y();
-        rt.u1 = m.uvs[tri(1)].x();
-        rt.v1_uv = m.uvs[tri(1)].y();
-        rt.u2 = m.uvs[tri(2)].x();
-        rt.v2_uv = m.uvs[tri(2)].y();
+      const bool hasUvIndices = triIndex < m.uvIndices.size();
+      const Eigen::Vector3i uvTri = hasUvIndices ? m.uvIndices[triIndex] : tri;
+      if (!m.uvs.empty() &&
+          m.uvs.size() > (size_t)std::max({uvTri(0), uvTri(1), uvTri(2)})) {
+        rt.u0 = m.uvs[uvTri(0)].x();
+        rt.v0_uv = m.uvs[uvTri(0)].y();
+        rt.u1 = m.uvs[uvTri(1)].x();
+        rt.v1_uv = m.uvs[uvTri(1)].y();
+        rt.u2 = m.uvs[uvTri(2)].x();
+        rt.v2_uv = m.uvs[uvTri(2)].y();
       } else {
         // Default UVs
         rt.u0 = rt.v0_uv = 0.0f;
         rt.u1 = rt.v1_uv = 0.0f;
         rt.u2 = rt.v2_uv = 0.0f;
+      }
+
+      Eigen::Vector3f edge1 = p1 - p0;
+      Eigen::Vector3f edge2 = p2 - p0;
+      float du1 = rt.u1 - rt.u0;
+      float dv1 = rt.v1_uv - rt.v0_uv;
+      float du2 = rt.u2 - rt.u0;
+      float dv2 = rt.v2_uv - rt.v0_uv;
+      float tangentDen = du1 * dv2 - du2 * dv1;
+      if (std::abs(tangentDen) > 1e-8f) {
+        float inv = 1.0f / tangentDen;
+        rt.tangent = (edge1 * dv2 - edge2 * dv1) * inv;
+        rt.bitangent = (edge2 * du1 - edge1 * du2) * inv;
+      } else {
+        rt.tangent = edge1.normalized();
+        rt.bitangent = faceNormal.cross(rt.tangent).normalized();
       }
       
       rt.materialId = m.materialId;
@@ -451,8 +423,12 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
                            hr_width,
                            hi_res_zbuffer.data(),
                            dot_buffer.data(),
-                           hi_res_intensity.data(),
-                           &textures);
+                           hi_res_color.data(),
+                           &materials,
+                           eye,
+                           viewRight,
+                           viewUp,
+                           viewForward);
     }
 
     for (auto& th : threads) {
@@ -461,8 +437,8 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
   } else {
     // Single-threaded fallback
     rasterize_band(raster_tris, 0, hr_height - 1, hr_width,
-                   hi_res_zbuffer.data(), dot_buffer.data(), hi_res_intensity.data(),
-                   &textures);
+                   hi_res_zbuffer.data(), dot_buffer.data(), hi_res_color.data(),
+                   &materials, eye, viewRight, viewUp, viewForward);
   }
 
   // Write directly to output_buffer
@@ -613,7 +589,7 @@ inline Eigen::Vector2f Renderer::to_hi_res_screen(Eigen::Vector2f ndc) {
 
 int Renderer::write_colored_braille_char(char *out, int char_x, int char_y) {
   int code = 0;
-  float total_intensity = 0.0f;
+  Eigen::Vector3f total_color = Eigen::Vector3f::Zero();
   int active_dots = 0;
 
   static const int dot_map[4][2] = {{0, 3}, {1, 4}, {2, 5}, {6, 7}};
@@ -633,7 +609,7 @@ int Renderer::write_colored_braille_char(char *out, int char_x, int char_y) {
       int idx = row_offset + dx;
       if (dot_buffer[idx]) {
         code |= (1 << dot_map[i][j]);
-        total_intensity += hi_res_intensity[idx];
+        total_color += hi_res_color[idx];
         active_dots++;
       }
     }
@@ -646,12 +622,11 @@ int Renderer::write_colored_braille_char(char *out, int char_x, int char_y) {
     return 3;
   }
 
-  // Map intensity to 0-255 for grayscale
   float coverage = (float)active_dots * 0.125f; // /8
-  float avg_intensity = total_intensity / active_dots;
-
-  int color = static_cast<int>(avg_intensity * coverage * 255.0f);
-  color = std::clamp(color, 0, 255);
+  Eigen::Vector3f color = (total_color / active_dots) * coverage;
+  int r8 = std::clamp((int)(color.x() * 255.0f), 0, 255);
+  int g8 = std::clamp((int)(color.y() * 255.0f), 0, 255);
+  int b8 = std::clamp((int)(color.z() * 255.0f), 0, 255);
 
   char *p = out;
 
@@ -662,11 +637,11 @@ int Renderer::write_colored_braille_char(char *out, int char_x, int char_y) {
   *p++ = ';';
   *p++ = '2';
   *p++ = ';';
-  p = write_uint8(p, color);
+  p = write_uint8(p, r8);
   *p++ = ';';
-  p = write_uint8(p, color);
+  p = write_uint8(p, g8);
   *p++ = ';';
-  p = write_uint8(p, color);
+  p = write_uint8(p, b8);
   *p++ = 'm';
 
   // Braille UTF-8 bytes
@@ -692,42 +667,52 @@ int Renderer::write_colored_block_char(char *out, int char_x, int char_y) {
   const int base_y_bot = base_y_top + 2;
 
   // Inline sampling for top 2x2 block
-  float sum_top = 0.0f;
+  Eigen::Vector3f sum_top = Eigen::Vector3f::Zero();
   int count_top = 0;
   for (int dy = 0; dy < 2; ++dy) {
     int row_offset = (base_y_top + dy) * hr_width;
     for (int dx = 0; dx < 2; ++dx) {
       int idx = row_offset + base_x + dx;
       if (dot_buffer[idx]) {
-        sum_top += hi_res_intensity[idx];
+        sum_top += hi_res_color[idx];
         count_top++;
       }
     }
   }
-  float avg_top = (count_top > 0) ? (sum_top * 0.25f) : 0.0f;
+  Eigen::Vector3f avg_top = Eigen::Vector3f::Zero();
+  if (count_top > 0) {
+    avg_top = sum_top * 0.25f;
+  }
 
   // Inline sampling for bottom 2x2 block
-  float sum_bot = 0.0f;
+  Eigen::Vector3f sum_bot = Eigen::Vector3f::Zero();
   int count_bot = 0;
   for (int dy = 0; dy < 2; ++dy) {
     int row_offset = (base_y_bot + dy) * hr_width;
     for (int dx = 0; dx < 2; ++dx) {
       int idx = row_offset + base_x + dx;
       if (dot_buffer[idx]) {
-        sum_bot += hi_res_intensity[idx];
+        sum_bot += hi_res_color[idx];
         count_bot++;
       }
     }
   }
-  float avg_bot = (count_bot > 0) ? (sum_bot * 0.25f) : 0.0f;
+  Eigen::Vector3f avg_bot = Eigen::Vector3f::Zero();
+  if (count_bot > 0) {
+    avg_bot = sum_bot * 0.25f;
+  }
 
-  if (avg_top <= 0.0f && avg_bot <= 0.0f) {
+  if (avg_top.maxCoeff() <= 0.0f && avg_bot.maxCoeff() <= 0.0f) {
     out[0] = ' ';
     return 1;
   }
 
-  int c_top = std::clamp((int)(avg_top * 255.0f), 0, 255);
-  int c_bot = std::clamp((int)(avg_bot * 255.0f), 0, 255);
+  int top_r = std::clamp((int)(avg_top.x() * 255.0f), 0, 255);
+  int top_g = std::clamp((int)(avg_top.y() * 255.0f), 0, 255);
+  int top_b = std::clamp((int)(avg_top.z() * 255.0f), 0, 255);
+  int bot_r = std::clamp((int)(avg_bot.x() * 255.0f), 0, 255);
+  int bot_g = std::clamp((int)(avg_bot.y() * 255.0f), 0, 255);
+  int bot_b = std::clamp((int)(avg_bot.z() * 255.0f), 0, 255);
 
   char *p = out;
 
@@ -739,11 +724,11 @@ int Renderer::write_colored_block_char(char *out, int char_x, int char_y) {
   *p++ = ';';
   *p++ = '2';
   *p++ = ';';
-  p = write_uint8(p, c_top);
+  p = write_uint8(p, top_r);
   *p++ = ';';
-  p = write_uint8(p, c_top);
+  p = write_uint8(p, top_g);
   *p++ = ';';
-  p = write_uint8(p, c_top);
+  p = write_uint8(p, top_b);
   *p++ = 'm';
 
   // Background: \x1b[48;2;R;G;Bm
@@ -754,11 +739,11 @@ int Renderer::write_colored_block_char(char *out, int char_x, int char_y) {
   *p++ = ';';
   *p++ = '2';
   *p++ = ';';
-  p = write_uint8(p, c_bot);
+  p = write_uint8(p, bot_r);
   *p++ = ';';
-  p = write_uint8(p, c_bot);
+  p = write_uint8(p, bot_g);
   *p++ = ';';
-  p = write_uint8(p, c_bot);
+  p = write_uint8(p, bot_b);
   *p++ = 'm';
 
   // Upper half block (▀) UTF-8: E2 96 80

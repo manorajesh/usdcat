@@ -12,6 +12,7 @@
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usdGeom/camera.h>
 #include <pxr/usd/usdGeom/mesh.h>
+#include <pxr/usd/usdShade/materialBindingAPI.h>
 #include <pxr/usdImaging/usdImaging/delegate.h>
 
 // Global flag for graceful shutdown
@@ -52,6 +53,18 @@ int main(int argc, char **argv) {
     if (!stage) {
       fprintf(stderr, "Error: Failed to open stage from '%s'\n", argv[1]);
       return -1;
+    }
+
+    {
+      pxr::UsdEditTarget previousEditTarget = stage->GetEditTarget();
+      stage->SetEditTarget(stage->GetSessionLayer());
+      for (const auto &prim : stage->Traverse()) {
+        if (prim.HasRelationship(pxr::TfToken("material:binding")) &&
+            !prim.HasAPI<pxr::UsdShadeMaterialBindingAPI>()) {
+          pxr::UsdShadeMaterialBindingAPI::Apply(prim);
+        }
+      }
+      stage->SetEditTarget(previousEditTarget);
     }
 
     // camera setup
