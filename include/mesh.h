@@ -12,6 +12,8 @@ struct MeshData {
   std::vector<Eigen::Vector3i> uvIndices;
   std::vector<Eigen::Vector3f> normals;
   std::vector<Eigen::Vector3i> normalIndices;
+  std::vector<Eigen::Vector3f> smoothNormals;
+  bool smoothSubdivision = false;
   pxr::SdfPath materialId;
   Eigen::Matrix4f worldTransform = Eigen::Matrix4f::Identity();
 };

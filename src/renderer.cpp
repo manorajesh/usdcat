@@ -300,15 +300,25 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
       Eigen::Vector3f n0 = faceNormal;
       Eigen::Vector3f n1 = faceNormal;
       Eigen::Vector3f n2 = faceNormal;
-      const bool hasNormalIndices = triIndex < m.normalIndices.size();
-      const Eigen::Vector3i normalTri =
-          hasNormalIndices ? m.normalIndices[triIndex] : tri;
-      if (!m.normals.empty() &&
+      const bool hasSmoothSubdivisionNormals =
+          m.smoothSubdivision &&
+          m.smoothNormals.size() >
+              static_cast<size_t>(std::max({tri(0), tri(1), tri(2)}));
+      if (hasSmoothSubdivisionNormals) {
+        n0 = (normalMatrix * m.smoothNormals[tri(0)]).normalized();
+        n1 = (normalMatrix * m.smoothNormals[tri(1)]).normalized();
+        n2 = (normalMatrix * m.smoothNormals[tri(2)]).normalized();
+      } else {
+        const bool hasNormalIndices = triIndex < m.normalIndices.size();
+        const Eigen::Vector3i normalTri =
+            hasNormalIndices ? m.normalIndices[triIndex] : tri;
+        if (!m.normals.empty() &&
           m.normals.size() >
               (size_t)std::max({normalTri(0), normalTri(1), normalTri(2)})) {
-        n0 = (normalMatrix * m.normals[normalTri(0)]).normalized();
-        n1 = (normalMatrix * m.normals[normalTri(1)]).normalized();
-        n2 = (normalMatrix * m.normals[normalTri(2)]).normalized();
+          n0 = (normalMatrix * m.normals[normalTri(0)]).normalized();
+          n1 = (normalMatrix * m.normals[normalTri(1)]).normalized();
+          n2 = (normalMatrix * m.normals[normalTri(2)]).normalized();
+        }
       }
 
       Eigen::Vector3f v0 = world_to_view(p0);

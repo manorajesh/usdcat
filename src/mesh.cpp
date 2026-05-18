@@ -1,12 +1,15 @@
 #include "mesh.h"
 #include "delegate.h"
-#include "mesh.h"
 #include "renderer.h"
+#include <cmath>
+#include <map>
 #include <mutex>
+#include <tuple>
 #include <pxr/imaging/hd/meshTopology.h>
 #include <pxr/imaging/hd/meshUtil.h>
 #include <pxr/imaging/hd/renderIndex.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
+#include <pxr/imaging/pxOsd/tokens.h>
 #include <pxr/usd/usdGeom/xformable.h>
 
 namespace pxr {
@@ -16,11 +19,57 @@ static bool _IsUvPrimvarName(const TfToken &name) {
          name == TfToken("primvars:st") || name == TfToken("primvars:st0");
 }
 
+static std::vector<Eigen::Vector3f>
+_ComputeWeldedSmoothNormals(const std::vector<Eigen::Vector3f> &vertices,
+                            const std::vector<Eigen::Vector3i> &indices) {
+  std::vector<Eigen::Vector3f> accum(vertices.size(),
+                                     Eigen::Vector3f::Zero());
+  for (const Eigen::Vector3i &tri : indices) {
+    if (tri(0) < 0 || tri(1) < 0 || tri(2) < 0 ||
+        static_cast<size_t>(std::max({tri(0), tri(1), tri(2)})) >=
+            vertices.size()) {
+      continue;
+    }
+
+    const Eigen::Vector3f &p0 = vertices[tri(0)];
+    const Eigen::Vector3f &p1 = vertices[tri(1)];
+    const Eigen::Vector3f &p2 = vertices[tri(2)];
+    Eigen::Vector3f areaNormal = (p1 - p0).cross(p2 - p0);
+    if (areaNormal.squaredNorm() < 1e-12f) {
+      continue;
+    }
+    accum[tri(0)] += areaNormal;
+    accum[tri(1)] += areaNormal;
+    accum[tri(2)] += areaNormal;
+  }
+
+  using PositionKey = std::tuple<int, int, int>;
+  std::map<PositionKey, Eigen::Vector3f> welded;
+  auto keyFor = [](const Eigen::Vector3f &p) {
+    constexpr float scale = 100000.0f;
+    return PositionKey(static_cast<int>(std::lround(p.x() * scale)),
+                       static_cast<int>(std::lround(p.y() * scale)),
+                       static_cast<int>(std::lround(p.z() * scale)));
+  };
+
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    welded[keyFor(vertices[i])] += accum[i];
+  }
+
+  std::vector<Eigen::Vector3f> smooth(vertices.size(), Eigen::Vector3f::UnitZ());
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    Eigen::Vector3f n = welded[keyFor(vertices[i])];
+    smooth[i] = n.squaredNorm() > 1e-12f ? n.normalized() : Eigen::Vector3f::UnitZ();
+  }
+  return smooth;
+}
+
 void HdTerminalMesh::_InitRepr(TfToken const &reprToken,
                                HdDirtyBits *dirtyBits) {
   // This tells Hydra: "If we are drawing smoothHull, we need Points and
   // Topology"
-  if (reprToken == HdReprTokens->smoothHull) {
+  if (reprToken == HdReprTokens->smoothHull ||
+      reprToken == HdReprTokens->refined) {
     *dirtyBits |= HdChangeTracker::DirtyPoints | HdChangeTracker::DirtyTopology;
   }
 }
@@ -57,6 +106,9 @@ void HdTerminalMesh::Sync([[maybe_unused]] HdSceneDelegate *sceneDelegate,
   // 2. Update Topology
   if (isNew || (*dirtyBits & HdChangeTracker::DirtyTopology)) {
     HdMeshTopology topology = GetMeshTopology(sceneDelegate);
+    data.smoothSubdivision =
+        topology.GetScheme() == PxOsdOpenSubdivTokens->catmullClark ||
+        topology.GetScheme() == PxOsdOpenSubdivTokens->loop;
     HdMeshUtil meshUtil(&topology, GetId());
 
     VtVec3iArray triangulation;
@@ -218,6 +270,15 @@ void HdTerminalMesh::Sync([[maybe_unused]] HdSceneDelegate *sceneDelegate,
   // This tells the mesh WHICH texture to use
   if (isNew || (*dirtyBits & HdChangeTracker::DirtyMaterialId)) {
     data.materialId = sceneDelegate->GetMaterialId(id);
+  }
+
+  if ((isNew || (*dirtyBits & HdChangeTracker::DirtyPoints) ||
+       (*dirtyBits & HdChangeTracker::DirtyTopology)) &&
+      data.smoothSubdivision && !data.vertices.empty() && !data.indices.empty()) {
+    data.smoothNormals =
+        _ComputeWeldedSmoothNormals(data.vertices, data.indices);
+  } else if (!data.smoothSubdivision) {
+    data.smoothNormals.clear();
   }
 
   *dirtyBits = HdChangeTracker::Clean;
