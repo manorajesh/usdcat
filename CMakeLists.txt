@@ -26,8 +26,8 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
 endif()
 
 # macOS specific configuration
-if(APPLE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "26.1" CACHE STRING "Minimum macOS version" FORCE)
+if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version")
 endif()
 
 # --- Dependencies ---
@@ -46,8 +46,9 @@ if(NOT pxr_DIR AND NOT CMAKE_PREFIX_PATH)
     list(APPEND CMAKE_PREFIX_PATH "${USD_ROOT}")
 endif()
 
-# Bypass pxrConfig's exact Python version check (USD built against 3.14.2, we have 3.14.3)
-set(Python3_VERSION "3.14.3")
+# pxrConfig.cmake requires EXACT Python version matching. Override via -DPython3_VERSION=X.Y
+# when the USD build Python and the system Python have a minor version difference.
+set(Python3_VERSION "3.14.3" CACHE STRING "Python version hint for pxr compatibility")
 find_package(pxr REQUIRED)
 
 # pxrConfig bakes in the SDK used at build time; if the SDK has been updated,

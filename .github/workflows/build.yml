@@ -7,44 +7,76 @@ on:
     branches: [master]
 
 jobs:
+  # ── Linux ─────────────────────────────────────────────────────────────────────
   build-linux:
-    name: Linux Build (Docker)
+    name: Linux (Docker / VFX Platform 2023)
     runs-on: ubuntu-latest
-    # This container has OpenUSD and its dependencies pre-installed
     container:
-      image: aswf/ci-vfxall:2023
+      image: aswf/ci-vfxall:2023   # RockyLinux; OpenUSD pre-installed, Python 3.10
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install System Dependencies
-        run: |
-          # aswf/ci-vfxall is RockyLinux based (yum)
-          yum install -y eigen3-devel
+      - name: Install system dependencies
+        run: yum install -y eigen3-devel
 
-      - name: Configure CMake
+      - name: Configure
         run: |
-          mkdir build && cd build
-          # -Dpxr_DIR points to the specific cmake config location in the container
-          # -DEIGEN3_INCLUDE_DIR ensures Eigen is found in its standard Linux path
-          cmake .. \
+          cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -Dpxr_DIR=/usr/local/lib/cmake/pxr \
             -DEIGEN3_INCLUDE_DIR=/usr/include/eigen3 \
-            -DOpenGL_GL_PREFERENCE=GLVND
+            -DOpenGL_GL_PREFERENCE=GLVND \
+            -DPython3_VERSION=3.10
 
       - name: Build
-        run: |
-          cd build
-          # Use all available CPU cores for a faster build
-          make -j$(nproc)
+        run: cmake --build build -j$(nproc)
 
-      - name: Verify Artifact
+      - name: Verify artifact
+        run: test -f build/usdcat && echo "SUCCESS: usdcat binary created."
+
+  # ── macOS ─────────────────────────────────────────────────────────────────────
+  build-macos:
+    name: macOS (Homebrew)
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install eigen usd
+
+      - name: Detect USD Python version
         run: |
-          if [ -f "build/usdcat" ]; then
-            echo "SUCCESS: usdcat binary created."
-          else
-            echo "ERROR: usdcat binary not found."
-            exit 1
+          # Read the Python version pxrConfig.cmake was built against so we can
+          # pass the correct hint and avoid the EXACT version-check failure.
+          PXR_CFG="$(brew --prefix usd)/lib/cmake/pxr/pxrConfig.cmake"
+          if [ -f "$PXR_CFG" ]; then
+            # Look for patterns like "Python3 3.13" or "Python 3.13.2"
+            PY_VER=$(grep -oE '[Pp]ython3? [0-9]+\.[0-9]+' "$PXR_CFG" \
+                     | head -1 | grep -oE '[0-9]+\.[0-9]+')
           fi
+          if [ -z "$PY_VER" ]; then
+            # Fall back: ask Homebrew which python@ version usd depends on
+            PY_DEP=$(brew deps usd 2>/dev/null | grep 'python@' | tail -1)
+            PY_VER=${PY_DEP#python@}
+          fi
+          if [ -z "$PY_VER" ]; then
+            # Last resort: use whatever python3 is on PATH
+            PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+          fi
+          echo "USD_PYTHON_VERSION=$PY_VER" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dpxr_DIR="$(brew --prefix usd)/lib/cmake/pxr" \
+            -DPython3_VERSION="$USD_PYTHON_VERSION" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+
+      - name: Build
+        run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Verify artifact
+        run: test -f build/usdcat && echo "SUCCESS: usdcat binary created."
