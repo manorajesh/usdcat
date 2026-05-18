@@ -24,6 +24,7 @@ public:
                      int height);
 
   void display_buffer(const char *data, size_t len);
+  void clear();
 
 private:
   struct termios orig_termios;

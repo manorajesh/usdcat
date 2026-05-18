@@ -451,9 +451,14 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
                    &materials, eye, viewRight, viewUp, viewForward);
   }
 
-  // Write directly to output_buffer
+  // Write directly to output_buffer with absolute cursor positioning per row
   char cell_buf[64];
+  char pos_buf[24];
   for (int y = 0; y < dims.y(); ++y) {
+    int pos_len = snprintf(pos_buf, sizeof(pos_buf), "\033[%d;%dH",
+                           viewport_row_offset_ + y + 1,
+                           viewport_col_offset_ + 1);
+    output_buffer.append(pos_buf, pos_len);
     for (int x = 0; x < dims.x(); ++x) {
       int len;
       if (mode == RenderMode::Braille) {
@@ -463,14 +468,10 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
       }
       output_buffer.append(cell_buf, len);
     }
-    if (y < dims.y() - 1) {
-      output_buffer.append("\r\n", 2);
-    }
   }
 }
 
 void Renderer::display_framebuffer() {
-  screen.erase();
   screen.display_buffer(output_buffer.data(), output_buffer.size());
 }
 

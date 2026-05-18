@@ -97,6 +97,15 @@ public:
   void set_render_mode(RenderMode m) { mode = m; }
   RenderMode get_render_mode() const { return mode; }
 
+  void set_viewport(int col_offset, int row_offset, int width, int height) {
+    viewport_col_offset_ = col_offset;
+    viewport_row_offset_ = row_offset;
+    viewport_w_ = width;
+    viewport_h_ = height;
+  }
+  int get_viewport_w() const { return viewport_w_; }
+  int get_viewport_h() const { return viewport_h_; }
+
   // curses Screen
   Screen screen{};
 
@@ -140,6 +149,11 @@ private:
   Eigen::Matrix4f view_matrix = Eigen::Matrix4f::Identity();
 
   RenderMode mode = RenderMode::HalfBlock;
+
+  int viewport_col_offset_ = 0;
+  int viewport_row_offset_ = 0;
+  int viewport_w_ = 0;
+  int viewport_h_ = 0;
 
   // render functions
   void orbit_camera();

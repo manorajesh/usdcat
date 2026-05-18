@@ -33,10 +33,6 @@ void pxr::HdTerminalRenderPass::_Execute(
     }
   }
 
-  // 3. Trigger the draw logic
-  // We pass the parameters you were previously handling manually in main.cpp
-  // For now, these are likely still stored or passed into your renderer
-  int w, h;
-  renderer->screen.get_dims(h, w);
-  renderer->update_framebuffer({w, h});
+  // 3. Trigger the draw logic using the viewport set by main.cpp
+  renderer->update_framebuffer({renderer->get_viewport_w(), renderer->get_viewport_h()});
 }

@@ -72,7 +72,7 @@ endif()
 
 # --- Executable ---
 
-add_executable(usdcat 
+add_executable(usdcat
     src/main.cpp
     src/camera_controller.cpp
     src/screen.cpp
@@ -82,6 +82,9 @@ add_executable(usdcat
     src/delegate.cpp
     src/render_pass.cpp
     src/frame_timer.cpp
+    src/tui_state.cpp
+    src/panel_renderer.cpp
+    src/cli.cpp
 )
 
 # --- Linking & Includes ---

@@ -121,3 +121,7 @@ void Screen::display_frame(const std::vector<std::string> &framebuffer,
 void Screen::display_buffer(const char *data, size_t len) {
   std::fwrite(data, 1, len, stdout);
 }
+
+void Screen::clear() {
+  std::printf("\033[2J\033[H");
+}
