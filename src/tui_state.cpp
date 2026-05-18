@@ -54,10 +54,11 @@ void TuiState::rebuild_flat() {
 void TuiState::compute_layout(int w, int h) {
     term_w  = w;
     term_h  = h;
+    panel_w = std::clamp(w / 4, 26, 60);
     tree_h  = std::max(2, (int)((float)h * TREE_FRAC));
     attr_h  = h - tree_h;
-    render_x = PANEL_W;
-    render_w = std::max(1, w - PANEL_W);
+    render_x = panel_w;
+    render_w = std::max(1, w - panel_w);
 }
 
 void TuiState::clamp_scroll(int visible_rows) {

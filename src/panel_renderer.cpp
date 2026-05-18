@@ -4,8 +4,7 @@
 #include <cstdio>
 #include <string>
 
-// Content width = PANEL_W minus 1 for left margin and 1 for the right border
-static constexpr int CONTENT_W = TuiState::PANEL_W - 2;
+// Content width is dynamically determined by panel_w - 2.
 
 std::string PanelRenderer::truncate(const std::string &s, int max_len) {
     if (max_len <= 0) return {};
@@ -32,31 +31,32 @@ void PanelRenderer::draw_borders(const TuiState &tui, Screen &screen) {
     const char *dim = "\033[38;2;80;80;90m";
     const char *rst = "\033[0m";
 
-    // Vertical divider at column PANEL_W-1 for every row
+    // Vertical divider at column panel_w - 1 for every row
     std::string vert = std::string(dim) + "│" + rst;
     for (int row = 0; row < tui.term_h; ++row)
-        screen.add_string(row, TuiState::PANEL_W - 1, vert.c_str());
+        screen.add_string(row, tui.panel_w - 1, vert.c_str());
 
     // Horizontal divider between tree and attrs
     std::string hline = std::string(dim);
-    for (int i = 0; i < TuiState::PANEL_W - 2; ++i) hline += "\xe2\x94\x80"; // ─
+    for (int i = 0; i < tui.panel_w - 2; ++i) hline += "\xe2\x94\x80"; // ─
     hline += rst;
     screen.add_string(tui.tree_h, 0, hline.c_str());
 
-    // Left-tee connector at (tree_h, PANEL_W-1)
+    // Left-tee connector at (tree_h, panel_w - 1)
     std::string connector = std::string(dim) + "\xe2\x94\x9c" + rst; // ├
-    screen.add_string(tui.tree_h, TuiState::PANEL_W - 1, connector.c_str());
+    screen.add_string(tui.tree_h, tui.panel_w - 1, connector.c_str());
 }
 
 void PanelRenderer::draw_tree(const TuiState &tui, Screen &screen) {
     bool focused = (tui.focus == TuiPanel::Tree);
+    const int content_w = tui.panel_w - 2;
 
     // Title row (row 0)
     {
         const char *col = focused ? "\033[1;38;2;120;180;255m" : "\033[1;38;2;100;100;130m";
         std::string title = std::string(col) + " Scene Tree " + "\033[0m";
         // Clear row background first
-        std::string blank(TuiState::PANEL_W - 1, ' ');
+        std::string blank(tui.panel_w - 1, ' ');
         screen.add_string(0, 0, blank.c_str());
         screen.add_string(0, 0, title.c_str());
     }
@@ -70,7 +70,7 @@ void PanelRenderer::draw_tree(const TuiState &tui, Screen &screen) {
         bool highlighted = (node_idx == tui.cursor);
 
         if (node_idx >= n) {
-            std::string blank(CONTENT_W, ' ');
+            std::string blank(content_w, ' ');
             screen.add_string(row, 1, blank.c_str());
             continue;
         }
@@ -94,22 +94,24 @@ void PanelRenderer::draw_tree(const TuiState &tui, Screen &screen) {
         std::string type_tag = " [" + (pn.typeName.empty() ? "?" : pn.typeName) + "]";
         int arrow_bytes = 3 + 1; // 3-byte UTF-8 arrow + space
         int used = indent + arrow_bytes;
-        int name_budget = CONTENT_W - used - (int)type_tag.size();
+        int name_budget = content_w - used - (int)type_tag.size();
         if (name_budget > 0) {
             text += truncate(pn.name, name_budget) + type_tag;
         } else {
-            text += truncate(pn.name, std::max(1, CONTENT_W - used));
+            text += truncate(pn.name, std::max(1, content_w - used));
         }
 
-        draw_row(screen, row, CONTENT_W, text, highlighted, focused);
+        draw_row(screen, row, content_w, text, highlighted, focused);
     }
 }
 
 void PanelRenderer::draw_attrs(const TuiState &tui, Screen &screen, const Renderer &renderer) {
+    const int content_w = tui.panel_w - 2;
+
     // Title row
     {
         std::string title = "\033[1;38;2;100;100;130m Attributes \033[0m";
-        std::string blank(TuiState::PANEL_W - 1, ' ');
+        std::string blank(tui.panel_w - 1, ' ');
         screen.add_string(tui.tree_h + 1, 0, blank.c_str());
         screen.add_string(tui.tree_h + 1, 0, title.c_str());
     }
@@ -119,8 +121,8 @@ void PanelRenderer::draw_attrs(const TuiState &tui, Screen &screen, const Render
 
     auto add_row = [&](const std::string &text) {
         if (row >= max_row) return;
-        std::string padded = truncate(text, CONTENT_W);
-        while ((int)padded.size() < CONTENT_W) padded += ' ';
+        std::string padded = truncate(text, content_w);
+        while ((int)padded.size() < content_w) padded += ' ';
         screen.add_string(row++, 1, padded.c_str());
     };
 

@@ -16,7 +16,7 @@ struct PrimNode {
 enum class TuiPanel { Tree, View };
 
 struct TuiState {
-    static constexpr int   PANEL_W   = 26;
+    int panel_w = 26;
     static constexpr float TREE_FRAC = 0.60f;
 
     int term_w = 0, term_h = 0;
