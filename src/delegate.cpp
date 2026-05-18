@@ -1,9 +1,11 @@
 #include "delegate.h"
+#include "material.h"
 #include "mesh.h"
 #include "render_pass.h"
 #include "renderer.h"
 #include <pxr/imaging/hd/bprim.h>
 #include <pxr/imaging/hd/camera.h>
+#include <pxr/imaging/hd/material.h>
 
 namespace pxr {
 
@@ -35,6 +37,8 @@ HdSprim *HdTerminalDelegate::CreateSprim(TfToken const &typeId,
                                          SdfPath const &primId) {
   if (typeId == HdPrimTypeTokens->camera) {
     return new HdCamera(primId);
+  } else if (typeId == HdPrimTypeTokens->material) {
+    return new HdTerminalMaterial(primId);
   }
   return nullptr;
 }
@@ -63,7 +67,10 @@ HdBprim *HdTerminalDelegate::CreateFallbackBprim(TfToken const &typeId) {
 void HdTerminalDelegate::DestroyBprim(HdBprim *bprim) { delete bprim; }
 
 const TfTokenVector &HdTerminalDelegate::GetSupportedSprimTypes() const {
-  static const TfTokenVector sprims = {HdPrimTypeTokens->camera};
+  static const TfTokenVector sprims = {
+      HdPrimTypeTokens->camera,
+      HdPrimTypeTokens->material
+  };
   return sprims;
 }
 const TfTokenVector &HdTerminalDelegate::GetSupportedBprimTypes() const {

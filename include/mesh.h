@@ -8,6 +8,8 @@
 struct MeshData {
   std::vector<Eigen::Vector3f> vertices;
   std::vector<Eigen::Vector3i> indices; // x, y, z as vertex IDs
+  std::vector<Eigen::Vector2f> uvs;
+  pxr::SdfPath materialId;
   Eigen::Matrix4f worldTransform = Eigen::Matrix4f::Identity();
 };
 
@@ -23,7 +25,8 @@ public:
 
   HdDirtyBits GetInitialDirtyBitsMask() const override {
     return HdChangeTracker::DirtyPoints | HdChangeTracker::DirtyTopology |
-           HdChangeTracker::DirtyTransform;
+           HdChangeTracker::DirtyTransform | HdChangeTracker::DirtyPrimvar |
+           HdChangeTracker::DirtyMaterialId;
   }
 
 protected:

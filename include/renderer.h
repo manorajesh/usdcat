@@ -11,6 +11,32 @@
 
 enum class RenderMode { Braille, HalfBlock };
 
+struct Texture {
+    int width = 0;
+    int height = 0;
+    std::vector<float> pixels; // RGB float
+    bool valid = false;
+
+    // Simple Nearest Neighbor sampler
+    Eigen::Vector3f sample(float u, float v) const {
+        if (!valid || pixels.empty()) return {1, 1, 1}; // White fallback
+
+        // Wrap (Repeat) logic
+        u = u - floor(u);
+        v = v - floor(v);
+
+        int x = static_cast<int>(u * width);
+        int y = static_cast<int>(v * height);
+
+        // Clamp just in case
+        x = std::max(0, std::min(x, width - 1));
+        y = std::max(0, std::min(y, height - 1));
+
+        int idx = (y * width + x) * 3;
+        return {pixels[idx], pixels[idx+1], pixels[idx+2]};
+    }
+};
+
 class Renderer {
 public:
   Renderer(RenderMode mode) : mode(mode) {}
@@ -41,6 +67,9 @@ public:
   std::map<pxr::SdfPath, MeshData> &get_meshes() { return meshes; }
   const std::map<pxr::SdfPath, MeshData> &get_meshes() const { return meshes; }
 
+  std::map<pxr::SdfPath, Texture> &get_textures() { return textures; }
+  const std::map<pxr::SdfPath, Texture> &get_textures() const { return textures; }
+
   void frame_scene_to_view(Eigen::Vector2i dims);
 
   void set_target(const Eigen::Vector3f &t) { target = t; }
@@ -58,10 +87,12 @@ public:
 private:
   // character set
   const std::string ramp[4] = {" ", "≥", "•", "…"};
-  const int ramp_size = 4;
 
   // geometry keyed by Usd path
   std::map<pxr::SdfPath, MeshData> meshes;
+
+  // textures keyed by material path
+  std::map<pxr::SdfPath, Texture> textures;
 
   // strings
   std::string output_buffer;

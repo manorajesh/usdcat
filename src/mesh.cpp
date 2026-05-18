@@ -73,6 +73,30 @@ void HdTerminalMesh::Sync([[maybe_unused]] HdSceneDelegate *sceneDelegate,
         data.worldTransform(i, j) = (float)m[j][i];
   }
 
+  // 4. Update UVs (texture coordinates)
+  if (isNew || (*dirtyBits & HdChangeTracker::DirtyPrimvar)) {
+    // Check for Primvars (UVs)
+    // "st" is the standard name for texture coordinates in USD
+    VtValue uvValue = sceneDelegate->Get(id, TfToken("primvars:st")); 
+    if (uvValue.IsEmpty()) {
+      uvValue = sceneDelegate->Get(id, TfToken("st")); // fallback
+    }
+
+    if (uvValue.IsHolding<VtArray<GfVec2f>>()) {
+      const auto &uvs = uvValue.UncheckedGet<VtArray<GfVec2f>>();
+      data.uvs.clear();
+      for (const auto &uv : uvs) {
+        data.uvs.emplace_back(uv[0], uv[1]);
+      }
+    }
+  }
+
+  // 5. Get the Bound Material ID
+  // This tells the mesh WHICH texture to use
+  if (isNew || (*dirtyBits & HdChangeTracker::DirtyMaterialId)) {
+    data.materialId = sceneDelegate->GetMaterialId(id);
+  }
+
   *dirtyBits = HdChangeTracker::Clean;
 }
 

@@ -19,6 +19,8 @@ struct RasterTri {
   float v0x, v0y, v1x, v1y, inv_den;     // Barycentric precomputed
   float lambert;                         // Lighting
   int minx, maxx, miny, maxy;            // Bounding box
+  float u0, v0_uv, u1, v1_uv, u2, v2_uv; // UV coordinates
+  pxr::SdfPath materialId;               // Material/texture ID
 };
 
 // Rasterize triangles within a horizontal band [band_miny, band_maxy]
@@ -27,7 +29,8 @@ static void rasterize_band(const std::vector<RasterTri>& tris,
                            int hr_width,
                            float* hi_res_zbuffer,
                            uint8_t* dot_buffer,
-                           float* hi_res_intensity) {
+                           float* hi_res_intensity,
+                           const std::map<pxr::SdfPath, Texture>* textures) {
   for (const auto& tri : tris) {
     // Skip if triangle doesn't overlap this band
     if (tri.maxy < band_miny || tri.miny > band_maxy)
@@ -86,13 +89,30 @@ static void rasterize_band(const std::vector<RasterTri>& tris,
         vst1q_f32(depths, depth);
         vst1q_u32(masks, mask);
 
+        alignas(16) float us[4], vs[4], ws[4];
+        vst1q_f32(us, u);
+        vst1q_f32(vs, v);
+        vst1q_f32(ws, w);
+
         for (int i = 0; i < 4; ++i) {
           if (masks[i]) {
             int k_dot = row_offset + px + i;
             if (depths[i] < hi_res_zbuffer[k_dot]) {
               hi_res_zbuffer[k_dot] = depths[i];
               dot_buffer[k_dot] = 1;
-              hi_res_intensity[k_dot] = tri.lambert;
+              
+              // Interpolate UVs and sample texture
+              float tex_u = us[i] * tri.u0 + vs[i] * tri.u1 + ws[i] * tri.u2;
+              float tex_v = us[i] * tri.v0_uv + vs[i] * tri.v1_uv + ws[i] * tri.v2_uv;
+              
+              Eigen::Vector3f textureColor(1,1,1);
+              if (textures && textures->count(tri.materialId)) {
+                const Texture &tex = textures->at(tri.materialId);
+                textureColor = tex.sample(tex_u, tex_v);
+              }
+              
+              float intensity = tri.lambert * textureColor.mean();
+              hi_res_intensity[k_dot] = intensity;
             }
           }
         }
@@ -164,13 +184,30 @@ static void rasterize_band(const std::vector<RasterTri>& tris,
         _mm_store_ps(depths, depth);
         _mm_store_ps(masks_f, mask);
 
+        alignas(16) float us[4], vs[4], ws[4];
+        _mm_store_ps(us, u);
+        _mm_store_ps(vs, v);
+        _mm_store_ps(ws, w);
+
         for (int i = 0; i < 4; ++i) {
           if (masks_f[i] != 0.0f) {
             int k_dot = row_offset + px + i;
             if (depths[i] < hi_res_zbuffer[k_dot]) {
               hi_res_zbuffer[k_dot] = depths[i];
               dot_buffer[k_dot] = 1;
-              hi_res_intensity[k_dot] = tri.lambert;
+              
+              // Interpolate UVs and sample texture
+              float tex_u = us[i] * tri.u0 + vs[i] * tri.u1 + ws[i] * tri.u2;
+              float tex_v = us[i] * tri.v0_uv + vs[i] * tri.v1_uv + ws[i] * tri.v2_uv;
+              
+              Eigen::Vector3f textureColor(1,1,1);
+              if (textures && textures->count(tri.materialId)) {
+                const Texture &tex = textures->at(tri.materialId);
+                textureColor = tex.sample(tex_u, tex_v);
+              }
+              
+              float intensity = tri.lambert * textureColor.mean();
+              hi_res_intensity[k_dot] = intensity;
             }
           }
         }
@@ -189,7 +226,19 @@ static void rasterize_band(const std::vector<RasterTri>& tris,
           if (depth < hi_res_zbuffer[k_dot]) {
             hi_res_zbuffer[k_dot] = depth;
             dot_buffer[k_dot] = 1;
-            hi_res_intensity[k_dot] = tri.lambert;
+            
+            // Interpolate UVs and sample texture
+            float tex_u = u * tri.u0 + v * tri.u1 + w * tri.u2;
+            float tex_v = u * tri.v0_uv + v * tri.v1_uv + w * tri.v2_uv;
+            
+            Eigen::Vector3f textureColor(1,1,1);
+            if (textures && textures->count(tri.materialId)) {
+              const Texture &tex = textures->at(tri.materialId);
+              textureColor = tex.sample(tex_u, tex_v);
+            }
+            
+            float intensity = tri.lambert * textureColor.mean();
+            hi_res_intensity[k_dot] = intensity;
           }
         }
       }
@@ -211,7 +260,20 @@ static void rasterize_band(const std::vector<RasterTri>& tris,
           if (depth < hi_res_zbuffer[k_dot]) {
             hi_res_zbuffer[k_dot] = depth;
             dot_buffer[k_dot] = 1;
-            hi_res_intensity[k_dot] = tri.lambert;
+            
+            // Interpolate UVs and sample texture
+            float tex_u = u * tri.u0 + v * tri.u1 + w * tri.u2;
+            float tex_v = u * tri.v0_uv + v * tri.v1_uv + w * tri.v2_uv;
+            
+            Eigen::Vector3f textureColor(1,1,1);
+            if (textures && textures->count(tri.materialId)) {
+              const Texture &tex = textures->at(tri.materialId);
+              textureColor = tex.sample(tex_u, tex_v);
+            }
+            
+            float intensity = tri.lambert * textureColor.mean();
+            hi_res_intensity[k_dot] = intensity;
+          }
           }
         }
       }
@@ -345,6 +407,24 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
       rt.lambert = lambert;
       rt.minx = minx; rt.maxx = maxx;
       rt.miny = miny; rt.maxy = maxy;
+      
+      // Extract UV coordinates if available
+      if (!m.uvs.empty() && m.uvs.size() > (size_t)std::max({tri(0), tri(1), tri(2)})) {
+        rt.u0 = m.uvs[tri(0)].x();
+        rt.v0_uv = m.uvs[tri(0)].y();
+        rt.u1 = m.uvs[tri(1)].x();
+        rt.v1_uv = m.uvs[tri(1)].y();
+        rt.u2 = m.uvs[tri(2)].x();
+        rt.v2_uv = m.uvs[tri(2)].y();
+      } else {
+        // Default UVs
+        rt.u0 = rt.v0_uv = 0.0f;
+        rt.u1 = rt.v1_uv = 0.0f;
+        rt.u2 = rt.v2_uv = 0.0f;
+      }
+      
+      rt.materialId = m.materialId;
+      
       raster_tris.push_back(rt);
     }
   }
@@ -371,7 +451,8 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
                            hr_width,
                            hi_res_zbuffer.data(),
                            dot_buffer.data(),
-                           hi_res_intensity.data());
+                           hi_res_intensity.data(),
+                           &textures);
     }
 
     for (auto& th : threads) {
@@ -380,7 +461,8 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
   } else {
     // Single-threaded fallback
     rasterize_band(raster_tris, 0, hr_height - 1, hr_width,
-                   hi_res_zbuffer.data(), dot_buffer.data(), hi_res_intensity.data());
+                   hi_res_zbuffer.data(), dot_buffer.data(), hi_res_intensity.data(),
+                   &textures);
   }
 
   // Write directly to output_buffer

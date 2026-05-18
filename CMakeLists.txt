@@ -46,7 +46,29 @@ if(NOT pxr_DIR AND NOT CMAKE_PREFIX_PATH)
     list(APPEND CMAKE_PREFIX_PATH "${USD_ROOT}")
 endif()
 
+# Bypass pxrConfig's exact Python version check (USD built against 3.14.2, we have 3.14.3)
+set(Python3_VERSION "3.14.3")
 find_package(pxr REQUIRED)
+
+# pxrConfig bakes in the SDK used at build time; if the SDK has been updated,
+# patch any imported target whose include dirs reference a now-missing SDK.
+if(APPLE)
+    execute_process(COMMAND xcrun --show-sdk-version OUTPUT_VARIABLE _sdk_ver OUTPUT_STRIP_TRAILING_WHITESPACE)
+    set(_new_sdk "MacOSX${_sdk_ver}.sdk")
+    get_cmake_property(_all_targets IMPORTED_TARGETS)
+    foreach(_t IN LISTS _all_targets)
+        if(NOT TARGET ${_t})
+            continue()
+        endif()
+        get_target_property(_dirs ${_t} INTERFACE_INCLUDE_DIRECTORIES)
+        if(_dirs)
+            string(REGEX REPLACE "MacOSX[0-9]+\\.[0-9]+\\.sdk" "${_new_sdk}" _dirs_fixed "${_dirs}")
+            if(NOT "${_dirs_fixed}" STREQUAL "${_dirs}")
+                set_property(TARGET ${_t} PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${_dirs_fixed}")
+            endif()
+        endif()
+    endforeach()
+endif()
 
 # --- Executable ---
 
@@ -56,6 +78,7 @@ add_executable(usdcat
     src/screen.cpp
     src/renderer.cpp
     src/mesh.cpp
+    src/material.cpp
     src/delegate.cpp
     src/render_pass.cpp
     src/frame_timer.cpp

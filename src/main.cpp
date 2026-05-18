@@ -25,9 +25,6 @@ void signal_handler(int signal) {
 }
 
 int main(int argc, char **argv) {
-  // Install signal handler
-  std::signal(SIGINT, signal_handler);
-  // Install signal handler
   std::signal(SIGINT, signal_handler);
 
   if (argc < 2) {
