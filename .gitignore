@@ -4,6 +4,7 @@ env/
 .cache/
 .DS_Store
 *.trace
+.claude/
 
 *.usdz
 *.usda
