@@ -8,7 +8,7 @@
 
 **A terminal-based USD (Universal Scene Description) viewer written in C++.**
 
-<img src="https://placehold.co/800x400/11111b/cdd6f4.png?text=Showcase+Your+Terminal+Art+Here" alt="usdcat screenshot" width="600" style="border-radius: 8px;"/>
+<img src="https://github.com/manorajesh/usdcat/blob/b6f89048ddabf72728dd8c40a8fd403c5ee5a709/images/hubble.png" alt="usdcat screenshot" width="600" style="border-radius: 8px;"/>
 
 *Renders USD scenes as colored Unicode art directly in your terminal using Hydra's rendering pipeline.*
 
@@ -126,7 +126,7 @@ You can try out the viewer using the sample files included in the project:
 
 | Key Bindings | Action |
 |--------------|--------|
-| `🡐` `🡒` `🡑` `🡓` | Orbit camera around center |
+| `←` `→` `↑` `↓` | Orbit camera around center |
 | `w` / `s` | Zoom camera in / out |
 | `f` | Auto-frame all visible meshes |
 | `q` or `Ctrl+C` | Quit viewer |
