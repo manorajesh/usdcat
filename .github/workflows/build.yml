@@ -48,21 +48,16 @@ jobs:
 
       - name: Detect USD Python version
         run: |
-          # Read the Python version pxrConfig.cmake was built against so we can
-          # pass the correct hint and avoid the EXACT version-check failure.
           PXR_CFG="$(brew --prefix usd)/lib/cmake/pxr/pxrConfig.cmake"
           if [ -f "$PXR_CFG" ]; then
-            # Look for patterns like "Python3 3.13" or "Python 3.13.2"
             PY_VER=$(grep -oE '[Pp]ython3? [0-9]+\.[0-9]+' "$PXR_CFG" \
                      | head -1 | grep -oE '[0-9]+\.[0-9]+')
           fi
           if [ -z "$PY_VER" ]; then
-            # Fall back: ask Homebrew which python@ version usd depends on
             PY_DEP=$(brew deps usd 2>/dev/null | grep 'python@' | tail -1)
             PY_VER=${PY_DEP#python@}
           fi
           if [ -z "$PY_VER" ]; then
-            # Last resort: use whatever python3 is on PATH
             PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
           fi
           echo "USD_PYTHON_VERSION=$PY_VER" >> "$GITHUB_ENV"
@@ -80,3 +75,79 @@ jobs:
 
       - name: Verify artifact
         run: test -f build/usdcat && echo "SUCCESS: usdcat binary created."
+
+  # ── Windows ───────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Windows (build_usd.py + MSVC)
+    runs-on: windows-latest
+    env:
+      USD_VERSION: "24.11"
+      USD_INSTALL: C:\usd-install
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Sets up cl.exe, link.exe, etc. for all subsequent steps
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache OpenUSD
+        id: cache-usd
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.USD_INSTALL }}
+          key: usd-${{ env.USD_VERSION }}-windows-x64-py311
+
+      # Cold build ~45-60 min; subsequent runs restore from cache in < 2 min.
+      - name: Build OpenUSD from source
+        if: steps.cache-usd.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch v${{ env.USD_VERSION }} `
+            https://github.com/PixarAnimationStudios/OpenUSD.git C:\usd-src
+          python C:\usd-src\build_scripts\build_usd.py `
+            --build-variant release `
+            --no-tests --no-examples --no-tutorials --no-docs `
+            ${{ env.USD_INSTALL }}
+
+      - name: Get Eigen3
+        shell: pwsh
+        run: |
+          Invoke-WebRequest `
+            -Uri "https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.zip" `
+            -OutFile eigen.zip
+          Expand-Archive eigen.zip -DestinationPath C:\deps
+
+      - name: Locate pxrConfig.cmake
+        shell: pwsh
+        run: |
+          $cfg = Get-ChildItem -Recurse -Filter pxrConfig.cmake "${{ env.USD_INSTALL }}" `
+                 | Select-Object -First 1
+          echo "PXR_DIR=$($cfg.DirectoryName)" >> $env:GITHUB_ENV
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            "-Dpxr_DIR=$env:PXR_DIR" `
+            -DEIGEN3_INCLUDE_DIR="C:\deps\eigen-3.4.0" `
+            -DPython3_VERSION=3.11
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Verify artifact
+        shell: pwsh
+        run: |
+          if (Test-Path "build\usdcat.exe") {
+            Write-Host "SUCCESS: usdcat.exe created."
+          } else {
+            Write-Error "ERROR: usdcat.exe not found."
+            exit 1
+          }

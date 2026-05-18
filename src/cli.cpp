@@ -1,12 +1,20 @@
 #include "cli.h"
 #include <cstdio>
 #include <cstring>
-#include <unistd.h>
+#ifdef _WIN32
+#  include <io.h>
+#else
+#  include <unistd.h>
+#endif
 
 // ── ANSI color helpers ────────────────────────────────────────────────────────
 
 static bool use_color() {
+#ifdef _WIN32
+    return _isatty(_fileno(stdout));
+#else
     return isatty(STDOUT_FILENO);
+#endif
 }
 
 #define C(code) (color ? "\033[" code "m" : "")
