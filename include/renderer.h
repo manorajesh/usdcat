@@ -54,7 +54,8 @@ struct MaterialData {
 
 class Renderer {
 public:
-  Renderer(RenderMode mode) : mode(mode) {}
+  Renderer(RenderMode mode, bool blocking_input = true)
+      : screen(blocking_input), mode(mode) {}
   ~Renderer() {}
 
   void update_framebuffer(Eigen::Vector2i dims);

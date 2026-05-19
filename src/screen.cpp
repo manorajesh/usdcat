@@ -2,6 +2,7 @@
 #include <clocale>
 #include <cstdio>
 #include <sys/ioctl.h>
+#include <sys/select.h>
 #include <unistd.h>
 
 Screen::Screen(bool blocking_input) {
@@ -90,6 +91,24 @@ int Screen::wgetch() {
     return c;
   }
   return -1;
+}
+
+int Screen::wgetch_for(int timeout_ms) {
+  fd_set readfds;
+  FD_ZERO(&readfds);
+  FD_SET(STDIN_FILENO, &readfds);
+
+  timeval tv{};
+  timeval *tv_ptr = nullptr;
+  if (timeout_ms >= 0) {
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    tv_ptr = &tv;
+  }
+
+  int ready = select(STDIN_FILENO + 1, &readfds, nullptr, nullptr, tv_ptr);
+  if (ready <= 0) return -1;
+  return wgetch();
 }
 
 void Screen::erase() {

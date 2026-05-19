@@ -19,6 +19,7 @@ public:
   void erase();
   void refresh();
   int wgetch();
+  int wgetch_for(int timeout_ms);
 
   void display_frame(const std::vector<std::string> &framebuffer, int width,
                      int height);
