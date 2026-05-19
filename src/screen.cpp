@@ -9,8 +9,8 @@ Screen::Screen(bool blocking_input) {
   setlocale(LC_ALL, "");
 
   // 1. Enter Alternate Screen Buffer
-  // and hide the cursor
-  std::printf("\033[?1049h\033[?25l");
+  // and hide the cursor. Enable SGR mouse reporting for clicks, drags, wheel.
+  std::printf("\033[?1049h\033[?25l\033[?1000h\033[?1002h\033[?1006h");
 
   // 2. Set terminal to raw mode for non-blocking/direct input
   tcgetattr(STDIN_FILENO, &orig_termios);
@@ -37,7 +37,7 @@ Screen::~Screen() {
   if (is_raw) {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
   }
-  std::printf("\033[?25h\033[?1049l");
+  std::printf("\033[?1006l\033[?1002l\033[?1000l\033[?25h\033[?1049l");
   std::fflush(stdout);
 }
 
@@ -63,34 +63,63 @@ void Screen::get_dims(int &h, int &w) {
 
 void Screen::refresh() { std::fflush(stdout); }
 
-int Screen::wgetch() {
-  char c = 0;
-  if (read(STDIN_FILENO, &c, 1) == 1) {
-    // Basic arrow key handling (ANSI escape sequences start with \033[)
-    if (c == '\033') {
-      char seq[2];
-      if (read(STDIN_FILENO, &seq[0], 1) == 0)
-        return '\033';
-      if (read(STDIN_FILENO, &seq[1], 1) == 0)
-        return '\033';
+int Screen::read_byte() {
+  unsigned char c = 0;
+  if (read(STDIN_FILENO, &c, 1) == 1) return c;
+  return -1;
+}
 
-      if (seq[0] == '[') {
-        switch (seq[1]) {
-        case 'A':
-          return KEY_UP;
-        case 'B':
-          return KEY_DOWN;
-        case 'C':
-          return KEY_RIGHT;
-        case 'D':
-          return KEY_LEFT;
-        }
-      }
+int Screen::parse_escape_sequence() {
+  int first = read_byte();
+  if (first != '[') return '\033';
+
+  int second = read_byte();
+  if (second < 0) return '\033';
+  switch (second) {
+  case 'A':
+    return KEY_UP;
+  case 'B':
+    return KEY_DOWN;
+  case 'C':
+    return KEY_RIGHT;
+  case 'D':
+    return KEY_LEFT;
+  case '<':
+    break;
+  default:
+    return '\033';
+  }
+
+  int values[3] = {0, 0, 0};
+  int idx = 0;
+  int c = -1;
+  while ((c = read_byte()) >= 0) {
+    if (c >= '0' && c <= '9') {
+      values[idx] = values[idx] * 10 + (c - '0');
+    } else if (c == ';' && idx < 2) {
+      ++idx;
+    } else if (c == 'M' || c == 'm') {
+      int code = values[0];
+      last_mouse_.x = values[1] - 1;
+      last_mouse_.y = values[2] - 1;
+      last_mouse_.button = code & 3;
+      last_mouse_.pressed = (c == 'M');
+      last_mouse_.motion = (code & 32) != 0;
+      last_mouse_.wheel_up = code == 64;
+      last_mouse_.wheel_down = code == 65;
+      return KEY_MOUSE;
+    } else {
       return '\033';
     }
-    return c;
   }
-  return -1;
+  return '\033';
+}
+
+int Screen::wgetch() {
+  int c = read_byte();
+  if (c < 0) return -1;
+  if (c == '\033') return parse_escape_sequence();
+  return c;
 }
 
 int Screen::wgetch_for(int timeout_ms) {

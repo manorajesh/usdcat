@@ -126,6 +126,27 @@ void PanelRenderer::draw_attrs(const TuiState &tui, Screen &screen, const Render
         screen.add_string(row++, 1, padded.c_str());
     };
 
+    if (tui.help_visible) {
+        add_row("Help");
+        add_row("Mouse drag: orbit");
+        add_row("Wheel: zoom");
+        add_row("Arrows: orbit/nav");
+        add_row("w/s: zoom viewer");
+        add_row("Space: play/pause");
+        add_row(",/.: prev/next frame");
+        add_row("</>: +/- 10 frames");
+        add_row("-/+: speed");
+        add_row("c/C: next/prev cam");
+        add_row("v: viewer camera");
+        add_row("g/e: start/end");
+        add_row("Tab: switch focus");
+        add_row("`: fullscreen");
+        add_row("h: hide help");
+        add_row("q/Ctrl-C: quit");
+        while (row < max_row) add_row("");
+        return;
+    }
+
     if (tui.selected_path.IsEmpty()) {
         add_row("(no selection)");
         while (row < max_row) add_row("");

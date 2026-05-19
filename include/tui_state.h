@@ -58,6 +58,7 @@ struct TuiState {
 
     TuiPanel focus      = TuiPanel::View;
     bool     fullscreen = false;
+    bool     help_visible = false;
 
     std::vector<PrimNode> flat_nodes;
     int cursor = 0, scroll = 0;

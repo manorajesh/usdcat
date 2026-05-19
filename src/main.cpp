@@ -26,11 +26,23 @@
 #include <vector>
 
 std::atomic<bool> g_running(true);
+std::atomic<bool> g_resized(false);
 
 void signal_handler(int signal) {
   if (signal == SIGINT) {
     g_running = false;
+  } else if (signal == SIGWINCH) {
+    g_resized = true;
   }
+}
+
+static void install_signal_handlers() {
+  struct sigaction action {};
+  action.sa_handler = signal_handler;
+  sigemptyset(&action.sa_mask);
+  action.sa_flags = 0;
+  sigaction(SIGINT, &action, nullptr);
+  sigaction(SIGWINCH, &action, nullptr);
 }
 
 static std::string format_timeline(const TimelineState &timeline, int width) {
@@ -105,8 +117,58 @@ static void configure_timeline_from_stage(TimelineState &timeline,
   }
 }
 
+static std::string camera_label(const pxr::SdfPath &activeCameraPath,
+                                const pxr::SdfPath &viewerCameraPath) {
+  if (activeCameraPath == viewerCameraPath) {
+    return "Camera: Viewer";
+  }
+  return "Camera: " + activeCameraPath.GetName();
+}
+
+static std::string fit_hud_text(std::string text, int width) {
+  if (width <= 0) return {};
+  if ((int)text.size() > width) text.resize(width);
+  if ((int)text.size() < width) text.resize(width, ' ');
+  return text;
+}
+
+static std::string controls_text(bool simple_mode, int width) {
+  std::vector<std::string> variants;
+  if (simple_mode) {
+    variants = {
+        "Mouse: drag orbit, wheel zoom | Camera: c next, C prev, v viewer | Playback: Space play/pause, , prev frame, . next frame | Quit: q or Ctrl-C",
+        "Mouse drag/wheel orbit/zoom | Camera c next, C prev, v viewer | Space play/pause | ,/. prev/next frame | h help | q/Ctrl-C quit",
+        "Drag orbit | Wheel zoom | c/C cameras | v viewer | Space play | ,/. step | h help | q/Ctrl-C"
+    };
+  } else {
+    variants = {
+        "Mouse: drag orbit, wheel zoom | Camera: c next, C prev, v viewer | Playback: Space play/pause, , prev frame, . next frame | UI: h help, Tab focus, ` fullscreen | Quit: q or Ctrl-C",
+        "Mouse drag/wheel orbit/zoom | Camera c next, C prev, v viewer | Space play/pause | ,/. prev/next frame | h help | Tab focus | q/Ctrl-C quit",
+        "Drag orbit | Wheel zoom | c/C cameras | v viewer | Space play | ,/. step | h help | Tab focus | q/Ctrl-C"
+    };
+  }
+
+  for (const std::string &variant : variants) {
+    if ((int)variant.size() <= width) return variant;
+  }
+  return variants.back();
+}
+
+static void draw_help_overlay(Screen &screen, int row, int col, int width) {
+  if (width <= 0 || row < 0) return;
+  const std::vector<std::string> lines = {
+      "Help: drag orbit, wheel zoom, arrows orbit/nav",
+      "Playback: Space play/pause, ,/. prev/next, </> +/-10, -/+ speed",
+      "Camera: c next, C prev, v viewer | g/e start/end | q/Ctrl-C quit"
+  };
+  int y = row;
+  for (const std::string &line : lines) {
+    screen.add_string(y++, col, fit_hud_text(line, width).c_str());
+  }
+}
+
 int main(int argc, char **argv) {
-  std::signal(SIGINT, signal_handler);
+  install_signal_handlers();
 
   CliArgs args = parse_args(argc, argv);
 
@@ -153,30 +215,35 @@ int main(int argc, char **argv) {
       stage->SetEditTarget(prev);
     }
 
-    // Camera setup: honour --camera arg, else use first camera found
-    pxr::SdfPath cameraPath;
+    std::vector<pxr::SdfPath> fileCameraPaths;
     for (const auto &prim : stage->Traverse()) {
       if (!prim.IsA<pxr::UsdGeomCamera>()) continue;
-      if (args.camera.empty()) {
-        cameraPath = prim.GetPath();
-        break;
-      }
-      // Match by full path or by prim name (last element)
-      if (prim.GetPath().GetString() == args.camera ||
-          prim.GetName()              == args.camera) {
-        cameraPath = prim.GetPath();
-        break;
-      }
-    }
-    if (cameraPath.IsEmpty()) {
-      pxr::UsdGeomCamera cam =
-          pxr::UsdGeomCamera::Define(stage, pxr::SdfPath("/Camera"));
-      cameraPath = cam.GetPath();
+      fileCameraPaths.push_back(prim.GetPath());
     }
 
-    pxr::UsdGeomCamera camera(stage->GetPrimAtPath(cameraPath));
+    pxr::SdfPath viewerCameraPath("/UsdcatViewerCamera");
+    pxr::SdfPath activeCameraPath = viewerCameraPath;
+    {
+      pxr::UsdEditTarget prev = stage->GetEditTarget();
+      stage->SetEditTarget(stage->GetSessionLayer());
+      pxr::UsdGeomCamera::Define(stage, viewerCameraPath);
+      stage->SetEditTarget(prev);
+    }
+
+    // Camera setup: use the viewer camera by default. If --camera is supplied,
+    // honour it by full path or prim name without overwriting the file camera.
+    if (!args.camera.empty()) {
+      for (const pxr::SdfPath &path : fileCameraPaths) {
+        pxr::UsdPrim prim = stage->GetPrimAtPath(path);
+        if (path.GetString() == args.camera || prim.GetName() == args.camera) {
+          activeCameraPath = path;
+          break;
+        }
+      }
+    }
+
+    pxr::UsdGeomCamera viewerCamera(stage->GetPrimAtPath(viewerCameraPath));
     CameraController controller;
-    controller.apply_orbit(camera);
 
     // Hydra pipeline
     pxr::HdTerminalDelegate renderDelegate(&renderer);
@@ -189,7 +256,7 @@ int main(int argc, char **argv) {
       sceneDelegate.SetTime(pxr::UsdTimeCode(tui.timeline.current));
     }
     sceneDelegate.Populate(stage->GetPseudoRoot());
-    sceneDelegate.SetCameraForSampling(cameraPath);
+    sceneDelegate.SetCameraForSampling(activeCameraPath);
 
     pxr::HdRprimCollection collection(
         pxr::HdTokens->geometry,
@@ -200,9 +267,10 @@ int main(int argc, char **argv) {
         renderDelegate.CreateRenderPass(renderIndex, collection);
 
     pxr::SdfPath taskPath("/renderTask");
-    pxr::HdTaskSharedPtr renderTask =
+    std::shared_ptr<pxr::HdTerminalRenderTask> renderTask =
         std::make_shared<pxr::HdTerminalRenderTask>(renderPass, taskPath,
-                                                    renderIndex, cameraPath);
+                                                    renderIndex,
+                                                    activeCameraPath);
     pxr::HdTaskSharedPtrVector tasks = {renderTask};
     pxr::HdEngine engine;
 
@@ -219,10 +287,12 @@ int main(int argc, char **argv) {
 
     engine.Execute(renderIndex, &tasks);
     int frame_w = args.simple_mode ? w : tui.render_w;
-    if (controller.frame_to_meshes(renderer, camera, frame_w, h)) {
-      controller.apply_orbit(camera);
+    if (controller.frame_to_meshes(renderer, viewerCamera, frame_w, h)) {
+      controller.apply_orbit(viewerCamera);
       sceneDelegate.ApplyPendingUpdates();
-      engine.Execute(renderIndex, &tasks);
+      if (activeCameraPath == viewerCameraPath) {
+        engine.Execute(renderIndex, &tasks);
+      }
     }
 
     // Build scene tree and apply --select if requested
@@ -248,6 +318,17 @@ int main(int argc, char **argv) {
     PanelRenderer panel_renderer;
     int prev_w = w, prev_h = h;
     auto last_tick = std::chrono::steady_clock::now();
+    bool mouse_dragging_view = false;
+    int last_mouse_x = 0;
+    int last_mouse_y = 0;
+    auto set_active_camera = [&](const pxr::SdfPath &path) {
+      activeCameraPath = path;
+      renderTask->SetCameraPath(activeCameraPath);
+      sceneDelegate.SetCameraForSampling(activeCameraPath);
+      sceneDelegate.ApplyPendingUpdates();
+      tui.render_dirty = true;
+      tui.panels_dirty = true;
+    };
 
     while (running && g_running) {
       frametimer.start();
@@ -259,7 +340,8 @@ int main(int argc, char **argv) {
       renderer.screen.get_dims(h, w);
 
       // Detect terminal resize
-      if (w != prev_w || h != prev_h) {
+      bool resize_signal = g_resized.exchange(false);
+      if (resize_signal || w != prev_w || h != prev_h) {
         prev_w = w; prev_h = h;
         renderer.screen.clear();
         tui.render_dirty = true;
@@ -308,21 +390,23 @@ int main(int argc, char **argv) {
       // Status bar
       std::string fps_text =
           "Frame: " + std::to_string(frametimer.frame_time_micros()) +
-          "us (" + std::to_string(frametimer.fps()) + " FPS)";
-      fps_text.resize(40, ' ');
+          "us (" + std::to_string(frametimer.fps()) + " FPS) | " +
+          camera_label(activeCameraPath, viewerCameraPath);
       int hud_col = (args.simple_mode || tui.fullscreen) ? 0 : tui.render_x;
       int hud_w = (args.simple_mode || tui.fullscreen) ? w : tui.render_w;
       if (h >= 3) {
         std::string timeline_text = format_timeline(tui.timeline, hud_w);
         renderer.screen.add_string(h - 3, hud_col, timeline_text.c_str());
       }
+      if (tui.help_visible && (args.simple_mode || tui.fullscreen) && h >= 6) {
+        draw_help_overlay(renderer.screen, h - 6, hud_col, hud_w);
+      }
+      fps_text = fit_hud_text(fps_text, hud_w);
       renderer.screen.add_string(std::max(0, h - 2), hud_col, fps_text.c_str());
 
-      const char *controls =
-          args.simple_mode
-          ? "Space: play | ,/.: step | h/e: jump | Arrows: orbit | w/s: zoom | q: quit"
-          : "Space: play | ,/.: step | h/e: jump | -/+: speed | Tab: panel | q: quit";
-      renderer.screen.add_string(std::max(0, h - 1), hud_col, controls);
+      std::string controls = controls_text(args.simple_mode, hud_w);
+      controls = fit_hud_text(controls, hud_w);
+      renderer.screen.add_string(std::max(0, h - 1), hud_col, controls.c_str());
       renderer.screen.refresh();
       frametimer.end();
 
@@ -330,6 +414,69 @@ int main(int argc, char **argv) {
       int c = renderer.screen.wgetch_for(tui.timeline.playing ? 8 : -1);
 
       if (c == 'q' || c == 3) { running = false; continue; }
+
+      if (c == 'h') {
+        tui.help_visible = !tui.help_visible;
+        tui.panels_dirty = true;
+        tui.render_dirty = true;
+        continue;
+      }
+
+      if (c == KEY_MOUSE) {
+        const MouseEvent &mouse = renderer.screen.last_mouse_event();
+        bool over_view =
+            args.simple_mode || tui.fullscreen ||
+            (mouse.x >= tui.render_x && mouse.x < tui.render_x + tui.render_w);
+
+        if (!args.simple_mode && !tui.fullscreen &&
+            mouse.pressed && !mouse.motion && mouse.button == 0 &&
+            mouse.x >= 0 && mouse.x < tui.panel_w - 1 &&
+            mouse.y > 0 && mouse.y < tui.tree_h) {
+          int idx = tui.scroll + mouse.y - 1;
+          if (idx >= 0 && idx < (int)tui.flat_nodes.size()) {
+            tui.focus = TuiPanel::Tree;
+            tui.cursor = idx;
+            tui.selected_path = tui.flat_nodes[idx].path;
+            if (stage->GetPrimAtPath(tui.selected_path)
+                    .IsA<pxr::UsdGeomCamera>()) {
+              set_active_camera(tui.selected_path);
+            }
+            tui.panels_dirty = true;
+          }
+          mouse_dragging_view = false;
+          continue;
+        }
+
+        if (over_view && activeCameraPath == viewerCameraPath) {
+          if (!args.simple_mode) {
+            tui.focus = TuiPanel::View;
+            tui.panels_dirty = true;
+          }
+          if (mouse.wheel_up || mouse.wheel_down) {
+            controller.zoom_delta(mouse.wheel_up ? 1.0f : -1.0f,
+                                  viewerCamera);
+            sceneDelegate.ApplyPendingUpdates();
+            tui.render_dirty = true;
+          } else if (mouse.pressed && mouse.button == 0 && !mouse.motion) {
+            mouse_dragging_view = true;
+            last_mouse_x = mouse.x;
+            last_mouse_y = mouse.y;
+          } else if (mouse.pressed && mouse.motion && mouse_dragging_view) {
+            int dx = mouse.x - last_mouse_x;
+            int dy = mouse.y - last_mouse_y;
+            last_mouse_x = mouse.x;
+            last_mouse_y = mouse.y;
+            controller.orbit_delta(dx * 0.01f, dy * 0.01f, viewerCamera);
+            sceneDelegate.ApplyPendingUpdates();
+            tui.render_dirty = true;
+          } else if (!mouse.pressed) {
+            mouse_dragging_view = false;
+          }
+        } else if (!mouse.pressed) {
+          mouse_dragging_view = false;
+        }
+        continue;
+      }
 
       if (tui.timeline.has_range()) {
         bool time_changed = false;
@@ -370,8 +517,8 @@ int main(int argc, char **argv) {
         case '0':
           tui.timeline.playback_rate = 1.0;
           break;
-        case 'H':
-        case 'h':
+        case 'G':
+        case 'g':
           tui.timeline.playing = false;
           tui.timeline.current = tui.timeline.start;
           time_changed = true;
@@ -392,8 +539,26 @@ int main(int argc, char **argv) {
         }
       }
 
+      if (c == 'v' || c == 'V') {
+        set_active_camera(viewerCameraPath);
+      } else if (c == 'c' || c == 'C') {
+        int count = static_cast<int>(fileCameraPaths.size()) + 1;
+        int current = 0;
+        for (int i = 0; i < (int)fileCameraPaths.size(); ++i) {
+          if (activeCameraPath == fileCameraPaths[i]) {
+            current = i + 1;
+            break;
+          }
+        }
+        int delta = (c == 'C') ? -1 : 1;
+        int next = (current + delta + count) % count;
+        set_active_camera(next == 0 ? viewerCameraPath
+                                    : fileCameraPaths[next - 1]);
+      }
+
       if (args.simple_mode) {
-        if (controller.handle_input(c, renderer, camera, w, h, running)) {
+        if (activeCameraPath == viewerCameraPath &&
+            controller.handle_input(c, renderer, viewerCamera, w, h, running)) {
           sceneDelegate.ApplyPendingUpdates();
           tui.render_dirty = true;
         }
@@ -442,6 +607,10 @@ int main(int argc, char **argv) {
         case '\n':
           if (!tui.flat_nodes.empty()) {
             tui.selected_path = tui.flat_nodes[tui.cursor].path;
+            if (stage->GetPrimAtPath(tui.selected_path)
+                    .IsA<pxr::UsdGeomCamera>()) {
+              set_active_camera(tui.selected_path);
+            }
             changed = true;
           }
           break;
@@ -454,7 +623,9 @@ int main(int argc, char **argv) {
         }
       } else {
         int view_w = tui.fullscreen ? w : tui.render_w;
-        if (controller.handle_input(c, renderer, camera, view_w, h, running)) {
+        if (activeCameraPath == viewerCameraPath &&
+            controller.handle_input(c, renderer, viewerCamera, view_w, h,
+                                    running)) {
           sceneDelegate.ApplyPendingUpdates();
           tui.render_dirty = true;
         }

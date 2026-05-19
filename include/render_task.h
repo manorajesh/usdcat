@@ -52,6 +52,9 @@ public:
     return tags;
   }
 
+  void SetCameraPath(SdfPath const &cameraPath) { _cameraPath = cameraPath; }
+  SdfPath const &GetCameraPath() const { return _cameraPath; }
+
 private:
   HdRenderPassSharedPtr _renderPass;
   HdRenderPassStateSharedPtr _renderPassState;

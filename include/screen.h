@@ -3,7 +3,23 @@
 #include <termios.h>
 #include <vector>
 
-enum KeyCode { KEY_UP = 259, KEY_DOWN = 258, KEY_RIGHT = 261, KEY_LEFT = 260 };
+enum KeyCode {
+  KEY_UP = 259,
+  KEY_DOWN = 258,
+  KEY_RIGHT = 261,
+  KEY_LEFT = 260,
+  KEY_MOUSE = 409
+};
+
+struct MouseEvent {
+  int x = 0;
+  int y = 0;
+  int button = -1;
+  bool pressed = false;
+  bool motion = false;
+  bool wheel_up = false;
+  bool wheel_down = false;
+};
 
 class Screen {
 public:
@@ -20,6 +36,7 @@ public:
   void refresh();
   int wgetch();
   int wgetch_for(int timeout_ms);
+  const MouseEvent &last_mouse_event() const { return last_mouse_; }
 
   void display_frame(const std::vector<std::string> &framebuffer, int width,
                      int height);
@@ -30,4 +47,8 @@ public:
 private:
   struct termios orig_termios;
   bool is_raw = false;
+  MouseEvent last_mouse_;
+
+  int read_byte();
+  int parse_escape_sequence();
 };

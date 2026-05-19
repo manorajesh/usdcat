@@ -576,7 +576,8 @@ void Renderer::clear_hydra_camera() { has_hydra_camera = false; }
 
 inline std::optional<Eigen::Vector3f>
 Renderer::project(Eigen::Vector3f p_view, float fov_y, float aspect) {
-  if (p_view.z() > -1e-6) {
+  constexpr float near_clip = 1e-2f;
+  if (p_view.z() > -near_clip) {
     return {};
   }
 
