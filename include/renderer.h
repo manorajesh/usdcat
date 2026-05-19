@@ -52,6 +52,13 @@ struct MaterialData {
   ImageTexture occlusionTexture;
 };
 
+struct RenderScratch {
+  std::vector<Eigen::Vector3f> world_vertices;
+  std::vector<Eigen::Vector3f> view_vertices;
+  std::vector<Eigen::Vector3f> world_normals;
+  std::vector<Eigen::Vector3f> smooth_world_normals;
+};
+
 class Renderer {
 public:
   Renderer(RenderMode mode, bool blocking_input = true)
@@ -131,6 +138,7 @@ private:
   std::vector<float> hi_res_zbuffer;
   Eigen::Vector2i hi_res_dims;
   std::vector<Eigen::Vector3f> hi_res_color;
+  RenderScratch scratch;
 
   // render calculation variables
   Eigen::Vector3f eye;

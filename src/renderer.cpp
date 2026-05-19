@@ -22,7 +22,7 @@ struct RasterTri {
   Eigen::Vector3f p0, p1, p2;            // World positions
   Eigen::Vector3f n0, n1, n2;            // World normals
   Eigen::Vector3f tangent, bitangent;     // Tangent frame for normal maps
-  pxr::SdfPath materialId;               // Material/texture ID
+  const MaterialData *material = nullptr; // Resolved material, or nullptr fallback
 };
 
 static inline float saturate(float v) { return std::clamp(v, 0.0f, 1.0f); }
@@ -51,8 +51,7 @@ static inline float geometry_schlick_ggx(float nDotV, float roughness) {
 }
 
 static inline Eigen::Vector3f shade_preview_surface(
-    const std::map<pxr::SdfPath, MaterialData>* materials,
-    const pxr::SdfPath &materialId,
+    const MaterialData *material,
     float texU,
     float texV,
     const Eigen::Vector3f &position,
@@ -64,13 +63,7 @@ static inline Eigen::Vector3f shade_preview_surface(
     const Eigen::Vector3f &viewUp,
     const Eigen::Vector3f &viewForward) {
   static const MaterialData fallbackMaterial;
-  const MaterialData *mat = &fallbackMaterial;
-  if (materials) {
-    auto it = materials->find(materialId);
-    if (it != materials->end()) {
-      mat = &it->second;
-    }
-  }
+  const MaterialData *mat = material ? material : &fallbackMaterial;
 
   Eigen::Vector3f baseColor =
       mat->baseColorTexture.sample(texU, texV, mat->baseColor);
@@ -167,7 +160,6 @@ static void rasterize_band(const std::vector<RasterTri>& tris,
                            float* hi_res_zbuffer,
                            uint8_t* dot_buffer,
                            Eigen::Vector3f* hi_res_color,
-                           const std::map<pxr::SdfPath, MaterialData>* materials,
                            const Eigen::Vector3f eye,
                            const Eigen::Vector3f viewRight,
                            const Eigen::Vector3f viewUp,
@@ -205,7 +197,7 @@ static void rasterize_band(const std::vector<RasterTri>& tris,
                 (u * tri.n0 + v * tri.n1 + w * tri.n2).normalized();
 
             hi_res_color[k_dot] =
-                shade_preview_surface(materials, tri.materialId, tex_u, tex_v,
+                shade_preview_surface(tri.material, tex_u, tex_v,
                                       position, normal, tri.tangent,
                                       tri.bitangent, eye, viewRight, viewUp,
                                       viewForward);
@@ -243,11 +235,11 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
   size_t fb_size = dims.x() * dims.y();
   size_t hr_size = hi_res_dims.x() * hi_res_dims.y();
 
-  zbuffer.resize(fb_size);
-  intensity_buffer.resize(fb_size);
-  dot_buffer.resize(hr_size);
-  hi_res_zbuffer.resize(hr_size);
-  hi_res_color.resize(hr_size);
+  if (zbuffer.size() != fb_size) zbuffer.resize(fb_size);
+  if (intensity_buffer.size() != fb_size) intensity_buffer.resize(fb_size);
+  if (dot_buffer.size() != hr_size) dot_buffer.resize(hr_size);
+  if (hi_res_zbuffer.size() != hr_size) hi_res_zbuffer.resize(hr_size);
+  if (hi_res_color.size() != hr_size) hi_res_color.resize(hr_size);
 
   // Fast clear with memset
   std::fill(zbuffer.begin(), zbuffer.end(),
@@ -281,49 +273,88 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
 
   // Phase 1: Pre-transform all triangles (single-threaded vertex processing)
   std::vector<RasterTri> raster_tris;
-  raster_tris.reserve(1024);  // Reasonable initial capacity
+  size_t total_triangles = 0;
+  for (auto const &[path, m] : meshes) {
+    (void)path;
+    total_triangles += m.indices.size();
+  }
+  raster_tris.reserve(total_triangles);
 
   for (auto const &[path, m] : meshes) {
+    (void)path;
+    scratch.world_vertices.resize(m.vertices.size());
+    scratch.view_vertices.resize(m.vertices.size());
+    for (size_t i = 0; i < m.vertices.size(); ++i) {
+      scratch.world_vertices[i] =
+          (m.worldTransform * m.vertices[i].homogeneous()).head<3>();
+      scratch.view_vertices[i] = world_to_view(scratch.world_vertices[i]);
+    }
+
+    Eigen::Matrix3f normalMatrix =
+        m.worldTransform.block<3, 3>(0, 0).inverse().transpose();
+    scratch.smooth_world_normals.clear();
+    if (m.smoothSubdivision && !m.smoothNormals.empty()) {
+      scratch.smooth_world_normals.resize(m.smoothNormals.size());
+      for (size_t i = 0; i < m.smoothNormals.size(); ++i) {
+        scratch.smooth_world_normals[i] =
+            (normalMatrix * m.smoothNormals[i]).normalized();
+      }
+    }
+
+    scratch.world_normals.clear();
+    if (!m.normals.empty()) {
+      scratch.world_normals.resize(m.normals.size());
+      for (size_t i = 0; i < m.normals.size(); ++i) {
+        scratch.world_normals[i] = (normalMatrix * m.normals[i]).normalized();
+      }
+    }
+
+    const MaterialData *meshMaterial = nullptr;
+    auto materialIt = materials.find(m.materialId);
+    if (materialIt != materials.end()) {
+      meshMaterial = &materialIt->second;
+    }
+
     for (size_t triIndex = 0; triIndex < m.indices.size(); ++triIndex) {
       const auto &tri = m.indices[triIndex];
-      Eigen::Vector3f local0 = m.vertices[tri(0)];
-      Eigen::Vector3f local1 = m.vertices[tri(1)];
-      Eigen::Vector3f local2 = m.vertices[tri(2)];
+      if (tri(0) < 0 || tri(1) < 0 || tri(2) < 0 ||
+          static_cast<size_t>(std::max({tri(0), tri(1), tri(2)})) >=
+              scratch.world_vertices.size()) {
+        continue;
+      }
 
-      Eigen::Vector3f p0 = (m.worldTransform * local0.homogeneous()).head<3>();
-      Eigen::Vector3f p1 = (m.worldTransform * local1.homogeneous()).head<3>();
-      Eigen::Vector3f p2 = (m.worldTransform * local2.homogeneous()).head<3>();
+      const Eigen::Vector3f &p0 = scratch.world_vertices[tri(0)];
+      const Eigen::Vector3f &p1 = scratch.world_vertices[tri(1)];
+      const Eigen::Vector3f &p2 = scratch.world_vertices[tri(2)];
 
       Eigen::Vector3f faceNormal = (p1 - p0).cross(p2 - p0).normalized();
-      Eigen::Matrix3f normalMatrix =
-          m.worldTransform.block<3, 3>(0, 0).inverse().transpose();
       Eigen::Vector3f n0 = faceNormal;
       Eigen::Vector3f n1 = faceNormal;
       Eigen::Vector3f n2 = faceNormal;
       const bool hasSmoothSubdivisionNormals =
           m.smoothSubdivision &&
-          m.smoothNormals.size() >
+          scratch.smooth_world_normals.size() >
               static_cast<size_t>(std::max({tri(0), tri(1), tri(2)}));
       if (hasSmoothSubdivisionNormals) {
-        n0 = (normalMatrix * m.smoothNormals[tri(0)]).normalized();
-        n1 = (normalMatrix * m.smoothNormals[tri(1)]).normalized();
-        n2 = (normalMatrix * m.smoothNormals[tri(2)]).normalized();
+        n0 = scratch.smooth_world_normals[tri(0)];
+        n1 = scratch.smooth_world_normals[tri(1)];
+        n2 = scratch.smooth_world_normals[tri(2)];
       } else {
         const bool hasNormalIndices = triIndex < m.normalIndices.size();
         const Eigen::Vector3i normalTri =
             hasNormalIndices ? m.normalIndices[triIndex] : tri;
-        if (!m.normals.empty() &&
-          m.normals.size() >
+        if (!scratch.world_normals.empty() &&
+          scratch.world_normals.size() >
               (size_t)std::max({normalTri(0), normalTri(1), normalTri(2)})) {
-          n0 = (normalMatrix * m.normals[normalTri(0)]).normalized();
-          n1 = (normalMatrix * m.normals[normalTri(1)]).normalized();
-          n2 = (normalMatrix * m.normals[normalTri(2)]).normalized();
+          n0 = scratch.world_normals[normalTri(0)];
+          n1 = scratch.world_normals[normalTri(1)];
+          n2 = scratch.world_normals[normalTri(2)];
         }
       }
 
-      Eigen::Vector3f v0 = world_to_view(p0);
-      Eigen::Vector3f v1 = world_to_view(p1);
-      Eigen::Vector3f v2 = world_to_view(p2);
+      const Eigen::Vector3f &v0 = scratch.view_vertices[tri(0)];
+      const Eigen::Vector3f &v1 = scratch.view_vertices[tri(1)];
+      const Eigen::Vector3f &v2 = scratch.view_vertices[tri(2)];
 
       Eigen::Vector3f n_view = (v1 - v0).cross(v2 - v0);
       if (n_view.z() <= 0)
@@ -405,7 +436,7 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
         rt.bitangent = faceNormal.cross(rt.tangent).normalized();
       }
       
-      rt.materialId = m.materialId;
+      rt.material = meshMaterial;
       
       raster_tris.push_back(rt);
     }
@@ -434,7 +465,6 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
                            hi_res_zbuffer.data(),
                            dot_buffer.data(),
                            hi_res_color.data(),
-                           &materials,
                            eye,
                            viewRight,
                            viewUp,
@@ -448,7 +478,7 @@ void Renderer::update_framebuffer(Eigen::Vector2i dims) {
     // Single-threaded fallback
     rasterize_band(raster_tris, 0, hr_height - 1, hr_width,
                    hi_res_zbuffer.data(), dot_buffer.data(), hi_res_color.data(),
-                   &materials, eye, viewRight, viewUp, viewForward);
+                   eye, viewRight, viewUp, viewForward);
   }
 
   // Write directly to output_buffer with absolute cursor positioning per row

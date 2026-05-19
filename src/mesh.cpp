@@ -97,6 +97,7 @@ void HdTerminalMesh::Sync([[maybe_unused]] HdSceneDelegate *sceneDelegate,
     if (value.IsHolding<VtArray<GfVec3f>>()) {
       const auto &points = value.UncheckedGet<VtArray<GfVec3f>>();
       data.vertices.clear();
+      data.vertices.reserve(points.size());
       for (const auto &p : points) {
         data.vertices.emplace_back(p[0], p[1], p[2]);
       }
@@ -118,6 +119,7 @@ void HdTerminalMesh::Sync([[maybe_unused]] HdSceneDelegate *sceneDelegate,
     meshUtil.ComputeTriangleIndices(&triangulation, &primitiveParams);
 
     data.indices.clear();
+    data.indices.reserve(triangulation.size());
     for (const auto &tri : triangulation) {
       // We emplace as Vector3i for your Renderer's MeshData struct
       data.indices.emplace_back(tri[0], tri[1], tri[2]);
@@ -188,9 +190,11 @@ void HdTerminalMesh::Sync([[maybe_unused]] HdSceneDelegate *sceneDelegate,
           triUvs = &uvs;
         }
         if (triUvs) {
+          data.uvs.reserve(triUvs->size());
           for (const auto &uv : *triUvs) {
             data.uvs.emplace_back(uv[0], uv[1]);
           }
+          data.uvIndices.reserve(data.uvs.size() / 3);
           for (size_t i = 0; i + 2 < data.uvs.size(); i += 3) {
             data.uvIndices.emplace_back(static_cast<int>(i),
                                         static_cast<int>(i + 1),
@@ -198,6 +202,7 @@ void HdTerminalMesh::Sync([[maybe_unused]] HdSceneDelegate *sceneDelegate,
           }
         }
       } else {
+        data.uvs.reserve(uvs.size());
         for (const auto &uv : uvs) {
           data.uvs.emplace_back(uv[0], uv[1]);
         }
@@ -248,9 +253,11 @@ void HdTerminalMesh::Sync([[maybe_unused]] HdSceneDelegate *sceneDelegate,
           triNormals = &normals;
         }
         if (triNormals) {
+          data.normals.reserve(triNormals->size());
           for (const auto &n : *triNormals) {
             data.normals.emplace_back(n[0], n[1], n[2]);
           }
+          data.normalIndices.reserve(data.normals.size() / 3);
           for (size_t i = 0; i + 2 < data.normals.size(); i += 3) {
             data.normalIndices.emplace_back(static_cast<int>(i),
                                             static_cast<int>(i + 1),
@@ -258,6 +265,7 @@ void HdTerminalMesh::Sync([[maybe_unused]] HdSceneDelegate *sceneDelegate,
           }
         }
       } else {
+        data.normals.reserve(normals.size());
         for (const auto &n : normals) {
           data.normals.emplace_back(n[0], n[1], n[2]);
         }

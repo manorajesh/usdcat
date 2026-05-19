@@ -7,6 +7,7 @@
 #include "renderer.h"
 #include "tui_state.h"
 #include <atomic>
+#include <array>
 #include <csignal>
 #include <pxr/imaging/hd/engine.h>
 #include <pxr/imaging/hd/renderPass.h>
@@ -133,20 +134,17 @@ static std::string fit_hud_text(std::string text, int width) {
 }
 
 static std::string controls_text(bool simple_mode, int width) {
-  std::vector<std::string> variants;
-  if (simple_mode) {
-    variants = {
-        "Mouse: drag orbit, wheel zoom | Camera: c next, C prev, v viewer | Playback: Space play/pause, , prev frame, . next frame | Quit: q or Ctrl-C",
-        "Mouse drag/wheel orbit/zoom | Camera c next, C prev, v viewer | Space play/pause | ,/. prev/next frame | h help | q/Ctrl-C quit",
-        "Drag orbit | Wheel zoom | c/C cameras | v viewer | Space play | ,/. step | h help | q/Ctrl-C"
-    };
-  } else {
-    variants = {
-        "Mouse: drag orbit, wheel zoom | Camera: c next, C prev, v viewer | Playback: Space play/pause, , prev frame, . next frame | UI: h help, Tab focus, ` fullscreen | Quit: q or Ctrl-C",
-        "Mouse drag/wheel orbit/zoom | Camera c next, C prev, v viewer | Space play/pause | ,/. prev/next frame | h help | Tab focus | q/Ctrl-C quit",
-        "Drag orbit | Wheel zoom | c/C cameras | v viewer | Space play | ,/. step | h help | Tab focus | q/Ctrl-C"
-    };
-  }
+  static const std::array<std::string, 3> simple_variants = {{
+      "Mouse: drag orbit, wheel zoom | Camera: c next, C prev, v viewer | Playback: Space play/pause, , prev frame, . next frame | Quit: q or Ctrl-C",
+      "Mouse drag/wheel orbit/zoom | Camera c next, C prev, v viewer | Space play/pause | ,/. prev/next frame | h help | q/Ctrl-C quit",
+      "Drag orbit | Wheel zoom | c/C cameras | v viewer | Space play | ,/. step | h help | q/Ctrl-C"
+  }};
+  static const std::array<std::string, 3> tui_variants = {{
+      "Mouse: drag orbit, wheel zoom | Camera: c next, C prev, v viewer | Playback: Space play/pause, , prev frame, . next frame | UI: h help, Tab focus, ` fullscreen | Quit: q or Ctrl-C",
+      "Mouse drag/wheel orbit/zoom | Camera c next, C prev, v viewer | Space play/pause | ,/. prev/next frame | h help | Tab focus | q/Ctrl-C quit",
+      "Drag orbit | Wheel zoom | c/C cameras | v viewer | Space play | ,/. step | h help | Tab focus | q/Ctrl-C"
+  }};
+  const auto &variants = simple_mode ? simple_variants : tui_variants;
 
   for (const std::string &variant : variants) {
     if ((int)variant.size() <= width) return variant;
@@ -156,11 +154,11 @@ static std::string controls_text(bool simple_mode, int width) {
 
 static void draw_help_overlay(Screen &screen, int row, int col, int width) {
   if (width <= 0 || row < 0) return;
-  const std::vector<std::string> lines = {
+  static const std::array<std::string, 3> lines = {{
       "Help: drag orbit, wheel zoom, arrows orbit/nav",
       "Playback: Space play/pause, ,/. prev/next, </> +/-10, -/+ speed",
       "Camera: c next, C prev, v viewer | g/e start/end | q/Ctrl-C quit"
-  };
+  }};
   int y = row;
   for (const std::string &line : lines) {
     screen.add_string(y++, col, fit_hud_text(line, width).c_str());
@@ -411,7 +409,7 @@ int main(int argc, char **argv) {
       frametimer.end();
 
       // Input
-      int c = renderer.screen.wgetch_for(tui.timeline.playing ? 8 : -1);
+      int c = renderer.screen.wgetch_for(tui.timeline.playing ? 0 : -1);
 
       if (c == 'q' || c == 3) { running = false; continue; }
 

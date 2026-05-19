@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <mutex>
+#include <unordered_map>
 #include <pxr/base/tf/token.h>
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/vec4f.h>
@@ -212,8 +213,24 @@ static bool _LoadTextureFromNode(const HdMaterialNode *node,
         return false;
     }
 
+    static std::mutex textureCacheMutex;
+    static std::unordered_map<std::string, ImageTexture> textureCache;
+    {
+        std::lock_guard<std::mutex> lock(textureCacheMutex);
+        auto it = textureCache.find(texturePath);
+        if (it != textureCache.end()) {
+            *texture = it->second;
+            return texture->valid;
+        }
+    }
+
     HioImageSharedPtr image = HioImage::OpenForReading(texturePath);
-    return image && _ReadImageAsRgb(image, texture);
+    bool loaded = image && _ReadImageAsRgb(image, texture);
+    if (loaded) {
+        std::lock_guard<std::mutex> lock(textureCacheMutex);
+        textureCache.emplace(texturePath, *texture);
+    }
+    return loaded;
 }
 
 HdTerminalMaterial::HdTerminalMaterial(SdfPath const &id) : HdMaterial(id) {}
