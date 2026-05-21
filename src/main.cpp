@@ -219,7 +219,7 @@ int main(int argc, char **argv) {
       fileCameraPaths.push_back(prim.GetPath());
     }
 
-    pxr::SdfPath viewerCameraPath("/UsdcatViewerCamera");
+    pxr::SdfPath viewerCameraPath("/UsdlessViewerCamera");
     pxr::SdfPath activeCameraPath = viewerCameraPath;
     {
       pxr::UsdEditTarget prev = stage->GetEditTarget();

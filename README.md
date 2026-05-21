@@ -1,14 +1,14 @@
 <div align="center">
 
-# usdcat
+# usdless
 
-[![Build](https://github.com/manorajesh/usdcat/actions/workflows/build.yml/badge.svg)](https://github.com/manorajesh/usdcat/actions/workflows/build.yml)
+[![Build](https://github.com/manorajesh/usdless/actions/workflows/build.yml/badge.svg)](https://github.com/manorajesh/usdless/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![C++17](https://img.shields.io/badge/C++-17-blue.svg)](https://isocpp.org/)
 
 **A terminal-based USD (Universal Scene Description) viewer written in C++.**
 
-<img src="https://github.com/manorajesh/usdcat/blob/b6f89048ddabf72728dd8c40a8fd403c5ee5a709/images/hubble.png" alt="usdcat screenshot" width="600" style="border-radius: 8px;"/>
+<img src="https://github.com/manorajesh/usdless/blob/b6f89048ddabf72728dd8c40a8fd403c5ee5a709/images/hubble.png" alt="usdless screenshot" width="600" style="border-radius: 8px;"/>
 
 *Renders USD scenes as colored Unicode art directly in your terminal using Hydra's rendering pipeline.*
 
@@ -36,7 +36,7 @@
 
 ## 📦 Dependencies
 
-To build `usdcat`, ensure you have the following installed:
+To build `usdless`, ensure you have the following installed:
 
 - **CMake** 3.12+
 - **C++17 Compiler** (AppleClang or GCC/Clang)
@@ -49,7 +49,7 @@ To build `usdcat`, ensure you have the following installed:
 
 ## 🚀 Building
 
-You can quickly build `usdcat` using the provided Cargo-style helper scripts:
+You can quickly build `usdless` using the provided Cargo-style helper scripts:
 
 ```bash
 # Debug build
@@ -106,7 +106,7 @@ Run a USD scene simply by invoking the launcher script:
 
 Or just run the compiled binary directly:
 ```bash
-./build/release/usdcat Hubble.usdz -hb
+./build/release/usdless Hubble.usdz -hb
 ```
 
 ### 🔲 Render Modes
@@ -133,7 +133,7 @@ You can try out the viewer using the sample files included in the project:
 
 ## 🎨 Materials & Lighting
 
-`usdcat` is capable of reading Hydra material networks to construct a lightweight CPU approximation of `UsdPreviewSurface`. Supported inputs include:
+`usdless` is capable of reading Hydra material networks to construct a lightweight CPU approximation of `UsdPreviewSurface`. Supported inputs include:
 
 - **Albedo:** `diffuseColor` / base color textures
 - **PBR Parameters:** `metallic`, `roughness`, `occlusion` (and maps)
@@ -144,7 +144,7 @@ Textures are fetched and mapped using `HioImage`—meaning packaged `.usdz` asse
 
 ### The Lighting Model
 
-Because `usdcat` is designed for quick terminal debugging, it uses a **camera-relative studio lighting setup**, featuring:
+Because `usdless` is designed for quick terminal debugging, it uses a **camera-relative studio lighting setup**, featuring:
 - A warm key light
 - A cool fill & rim light
 - Ambient hemisphere grounding
@@ -164,7 +164,7 @@ This keeps models readable and dynamic as you orbit.
 The project relies on a clean, scalable separation of duties bridging Hydra, the camera, and the TUI:
 
 ```text
-usdcat
+usdless
 ├── main.cpp                 — Entry point, event loop, terminal state management
 ├── src/
 │   ├── renderer.cpp         — Framebuffer management, projection, rasterization & PBR shading
@@ -191,7 +191,7 @@ usdcat
 macOS debug symbols (`.dSYM`) are automatically created in post-build steps. Before attaching external debuggers/profilers, you can verify your build components match UUIDs:
 
 ```bash
-dwarfdump --uuid ./build/debug/usdcat ./build/debug/usdcat.dSYM
+dwarfdump --uuid ./build/debug/usdless ./build/debug/usdless.dSYM
 ```
 
 To profile bottlenecks, attach **Instruments** directly to the running application component.

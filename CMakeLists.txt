@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(usdcat)
+project(usdless)
 
 # --- Project Settings ---
 set(CMAKE_CXX_STANDARD 17)
@@ -73,7 +73,7 @@ endif()
 
 # --- Executable ---
 
-add_executable(usdcat
+add_executable(usdless
     src/main.cpp
     src/camera_controller.cpp
     src/screen.cpp
@@ -90,13 +90,13 @@ add_executable(usdcat
 
 # --- Linking & Includes ---
 
-target_include_directories(usdcat PRIVATE 
+target_include_directories(usdless PRIVATE 
     ${CMAKE_SOURCE_DIR}/include
     ${PXR_INCLUDE_DIRS}
 )
 
 # Use PRIVATE for libraries to prevent leaking internal dependencies
-target_link_libraries(usdcat PRIVATE 
+target_link_libraries(usdless PRIVATE 
     Eigen3::Eigen
     ${PXR_LIBRARIES}
     OpenGL::GL
@@ -104,8 +104,8 @@ target_link_libraries(usdcat PRIVATE
 
 # macOS Post-Build
 if(APPLE)
-    add_custom_command(TARGET usdcat POST_BUILD
-        COMMAND dsymutil $<TARGET_FILE:usdcat>
-        COMMENT "Generating dSYM file for usdcat"
+    add_custom_command(TARGET usdless POST_BUILD
+        COMMAND dsymutil $<TARGET_FILE:usdless>
+        COMMENT "Generating dSYM file for usdless"
     )
 endif()

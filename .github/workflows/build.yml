@@ -33,7 +33,7 @@ jobs:
         run: cmake --build build -j$(nproc)
 
       - name: Verify artifact
-        run: test -f build/usdcat && echo "SUCCESS: usdcat binary created."
+        run: test -f build/usdless && echo "SUCCESS: usdless binary created."
 
   # ── macOS ─────────────────────────────────────────────────────────────────────
   build-macos:
@@ -79,4 +79,4 @@ jobs:
         run: cmake --build build -j$(sysctl -n hw.ncpu)
 
       - name: Verify artifact
-        run: test -f build/usdcat && echo "SUCCESS: usdcat binary created."
+        run: test -f build/usdless && echo "SUCCESS: usdless binary created."

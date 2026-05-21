@@ -45,4 +45,4 @@ echo "Running ${BUILD_TYPE} build..."
 echo "----------------------------------------"
 
 # Run the executable with any remaining arguments
-"${BUILD_DIR}/usdcat" "${RUN_ARGS[@]}"
+"${BUILD_DIR}/usdless" "${RUN_ARGS[@]}"

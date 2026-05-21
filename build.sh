@@ -38,7 +38,7 @@ for arg in "$@"; do
     esac
 done
 
-echo "Building usdcat in ${BUILD_TYPE} mode..."
+echo "Building usdless in ${BUILD_TYPE} mode..."
 echo "Build directory: ${BUILD_DIR}"
 
 if [ "$CLEAN_BUILD" = true ]; then
@@ -55,4 +55,4 @@ cmake -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" ../..
 cmake --build . -j$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
 echo ""
-echo "✓ Build complete: ${BUILD_DIR}/usdcat"
+echo "✓ Build complete: ${BUILD_DIR}/usdless"

@@ -63,7 +63,7 @@ void print_help(const char *prog) {
     const char *BLD  = C("1");     // bold white
 
     // ── Header ───────────────────────────────────────────────────────────────
-    printf("\n%susdcat%s  Terminal USD Viewer\n", BCY, R);
+    printf("\n%susdless%s  Terminal USD Viewer\n", BCY, R);
     printf("%s%s%s\n\n",
            DM,
            "────────────────────────────────────────────────────────────────────────────",
