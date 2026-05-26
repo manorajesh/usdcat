@@ -8,7 +8,7 @@
 
 **A terminal-based USD (Universal Scene Description) viewer written in C++.**
 
-<img src="https://github.com/manorajesh/usdless/blob/b6f89048ddabf72728dd8c40a8fd403c5ee5a709/images/hubble.png" alt="usdless screenshot" width="600" style="border-radius: 8px;"/>
+<img src="images/demo.gif" alt="usdless demo" width="600" style="border-radius: 8px;"/>
 
 *Renders USD scenes as colored Unicode art directly in your terminal using Hydra's rendering pipeline.*
 
