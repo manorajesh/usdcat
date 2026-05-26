@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(usdless)
+project(usdless VERSION 1.0.0)
 
 # --- Project Settings ---
 set(CMAKE_CXX_STANDARD 17)
@@ -109,3 +109,9 @@ if(APPLE)
         COMMENT "Generating dSYM file for usdless"
     )
 endif()
+
+# --- Install ---
+
+include(GNUInstallDirs)
+install(TARGETS usdless RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES man/usdless.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)

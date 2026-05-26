@@ -1,0 +1,151 @@
+.TH USDLESS 1 "May 2026" "usdless 1.0.0" "User Commands"
+.SH NAME
+usdless \- terminal USD (Universal Scene Description) viewer
+.SH SYNOPSIS
+.B usdless
+.RI [ usdFile ]
+.RI [ options ]
+.SH DESCRIPTION
+.B usdless
+is a terminal-based viewer for USD (Universal Scene Description) files.
+It renders 3D scenes using Unicode half-block characters or Braille dot patterns
+with 24-bit ANSI colour directly in the terminal, powered by Hydra's rendering pipeline.
+.PP
+The default mode presents a split TUI with a scene-tree panel on the left and an
+interactive 3D viewport on the right. A fullscreen simple mode is also available
+for low-bandwidth connections or minimal terminals.
+.SH POSITIONAL ARGUMENTS
+.TP
+.I usdFile
+Path to the USD file to view. Accepted formats:
+.BR .usd ", " .usda ", " .usdc ", " .usdz .
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show a help message and exit.
+.TP
+\fB\-r\fR \fI{halfblock,braille}\fR, \fB\-\-renderer\fR \fI{halfblock,braille}\fR
+Set the render mode for the 3D viewport.
+.RS
+.TP
+.B halfblock
+(Default) Uses Unicode upper half-block characters (\fB\[u2580]\fR) with separate
+foreground and background colours per cell. Fast, full 24-bit colour. Best for
+general use.
+.TP
+.B braille
+Uses Braille dot patterns for finer geometric detail at reduced colour depth.
+Works best with small terminal fonts and a true-colour terminal.
+.RE
+.TP
+.BR \-s ", " \-\-simple
+Bypass the TUI and show a fullscreen 3D view only. Recommended for slow SSH
+connections or weaker terminals.
+.TP
+.BI \-\-select " PRIMPATH"
+Prim path to initially select in the scene tree (e.g.\&
+.BR /World/Geom/Cube ).
+.TP
+.BI \-\-camera " CAMERA"
+Camera to set the view to on open. May be given as a prim name or a full prim path.
+Defaults to the first camera found in the scene.
+.SS Legacy flags
+The following short flags are kept for backward compatibility and map to their
+.B \-\-renderer
+equivalents:
+.TP
+.B \-hb
+Equivalent to \fB\-\-renderer halfblock\fR.
+.TP
+.B \-b
+Equivalent to \fB\-\-renderer braille\fR.
+.SH KEY BINDINGS
+The following bindings apply in TUI mode.
+.TP
+.B Tab
+Switch focus between the scene-tree panel and the 3D viewport.
+.TP
+.B `
+Toggle between fullscreen 3D view and the split TUI layout.
+.TP
+.B Arrow\ keys
+Orbit the camera (when the 3D viewport is focused) or navigate the scene tree
+(when the tree panel is focused).
+.TP
+.B Enter
+Select the highlighted prim in the scene tree.
+.TP
+.BR Left " / " Right
+Collapse or expand a node in the scene tree.
+.TP
+.BR w " / " s
+Zoom the camera in or out.
+.TP
+.B f
+Auto-frame all visible meshes.
+.TP
+.BR q " / " Ctrl\-C
+Quit.
+.SH EXAMPLES
+Open a USD archive in the default half-block mode:
+.PP
+.RS 4
+.B usdless Hubble.usdz
+.RE
+.PP
+Use Braille render mode:
+.PP
+.RS 4
+.B usdless Hubble.usdz \-r braille
+.RE
+.PP
+Open in simple (fullscreen) mode:
+.PP
+.RS 4
+.B usdless scene.usda \-\-simple
+.RE
+.PP
+Select a specific prim on startup:
+.PP
+.RS 4
+.B usdless scene.usda \-\-select /World/Geom/Cube
+.RE
+.PP
+Open with a named camera:
+.PP
+.RS 4
+.B usdless scene.usda \-\-camera main_cam
+.RE
+.SH ENVIRONMENT
+.B usdless
+does not read any environment variables directly.
+A terminal with 24-bit true-colour support is strongly recommended (e.g.\&
+.BR iTerm2 ", " kitty ", " Alacritty ", " WezTerm ).
+Set
+.B TERM
+to
+.B xterm-256color
+or
+.B xterm-direct
+if your terminal profile does not advertise true-colour automatically.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Invalid arguments, unrecognised flags, or failure to open the USD file.
+.SH BUGS
+Report bugs at
+.UR https://github.com/manorajesh/usdless/issues
+.UE .
+.SH AUTHORS
+Mano Rajesh.
+.SH LICENSE
+MIT License.
+See
+.UR https://github.com/manorajesh/usdless/blob/master/LICENSE
+.UE
+for the full text.
+.SH SEE ALSO
+.BR usdview (1)

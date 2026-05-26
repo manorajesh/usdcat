@@ -1,0 +1,25 @@
+Source: usdless
+Section: graphics
+Priority: optional
+Maintainer: Mano Rajesh <anthropic@raje.sh>
+Build-Depends:
+ debhelper-compat (= 13),
+ cmake (>= 3.12),
+ libeigen3-dev,
+ libopengl-dev,
+ libpxr-dev | openusd-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/manorajesh/usdless
+Rules-Requires-Root: no
+
+Package: usdless
+Architecture: any
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends}
+Description: terminal-based USD (Universal Scene Description) viewer
+ usdless renders 3D USD scenes as coloured Unicode art directly in your
+ terminal using Hydra's rendering pipeline. It supports half-block and
+ Braille rendering modes with 24-bit ANSI colour, an interactive TUI with
+ scene-tree navigation, PBR material approximation, and multithreaded
+ CPU rasterisation.

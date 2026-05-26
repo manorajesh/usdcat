@@ -1,0 +1,133 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # ── macOS binary ──────────────────────────────────────────────────────────────
+  release-macos:
+    name: macOS binary
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install eigen usd
+
+      - name: Detect USD Python version
+        run: |
+          PXR_CFG="$(brew --prefix usd)/lib/cmake/pxr/pxrConfig.cmake"
+          if [ -f "$PXR_CFG" ]; then
+            PY_VER=$(grep -oE '[Pp]ython3? [0-9]+\.[0-9]+' "$PXR_CFG" \
+                     | head -1 | grep -oE '[0-9]+\.[0-9]+')
+          fi
+          if [ -z "$PY_VER" ]; then
+            PY_DEP=$(brew deps usd 2>/dev/null | grep 'python@' | tail -1)
+            PY_VER=${PY_DEP#python@}
+          fi
+          if [ -z "$PY_VER" ]; then
+            PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+          fi
+          echo "USD_PYTHON_VERSION=$PY_VER" >> "$GITHUB_ENV"
+
+      - name: Configure & build
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dpxr_DIR="$(brew --prefix usd)/lib/cmake/pxr" \
+            -DPython3_VERSION="$USD_PYTHON_VERSION" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+          cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Package
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          mkdir -p dist
+          cp build/usdless dist/
+          cp man/usdless.1 dist/
+          cp LICENSE dist/
+          tar -czf usdless-${TAG}-macos-universal.tar.gz -C dist .
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: usdless-*.tar.gz
+
+  # ── Linux binary + .deb ───────────────────────────────────────────────────────
+  release-linux:
+    name: Linux binary + .deb
+    runs-on: ubuntu-latest
+    container:
+      image: aswf/ci-vfxall:2023
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          yum install -y eigen3-devel dpkg-devel || true
+          # Install dpkg tools for .deb creation (may not be in Rocky; fall back)
+          command -v dpkg-deb >/dev/null 2>&1 || \
+            (apt-get update -qq && apt-get install -y --no-install-recommends dpkg 2>/dev/null || true)
+
+      - name: Configure & build
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dpxr_DIR=/usr/local/lib/cmake/pxr \
+            -DEIGEN3_INCLUDE_DIR=/usr/include/eigen3 \
+            -DOpenGL_GL_PREFERENCE=GLVND \
+            -DPython3_VERSION=3.10 \
+            -DCMAKE_INSTALL_PREFIX=/usr
+          cmake --build build -j$(nproc)
+
+      - name: Package tarball
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          mkdir -p dist
+          cp build/usdless dist/
+          cp man/usdless.1 dist/
+          cp LICENSE dist/
+          tar -czf usdless-${TAG}-linux-x86_64.tar.gz -C dist .
+
+      - name: Build .deb
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          VERSION=${TAG#v}
+          PKGDIR=usdless_${VERSION}-1_amd64
+
+          mkdir -p ${PKGDIR}/DEBIAN
+          mkdir -p ${PKGDIR}/usr/bin
+          mkdir -p ${PKGDIR}/usr/share/man/man1
+          mkdir -p ${PKGDIR}/usr/share/doc/usdless
+
+          cp build/usdless ${PKGDIR}/usr/bin/
+          gzip -c man/usdless.1 > ${PKGDIR}/usr/share/man/man1/usdless.1.gz
+          cp LICENSE ${PKGDIR}/usr/share/doc/usdless/copyright
+
+          cat > ${PKGDIR}/DEBIAN/control <<EOF
+          Package: usdless
+          Version: ${VERSION}-1
+          Architecture: amd64
+          Maintainer: Mano Rajesh <anthropic@raje.sh>
+          Description: terminal-based USD viewer
+           usdless renders 3D USD scenes as coloured Unicode art in the terminal
+           using Hydra's rendering pipeline with half-block or Braille modes.
+          Homepage: https://github.com/manorajesh/usdless
+          EOF
+
+          dpkg-deb --build ${PKGDIR} usdless-${TAG}-linux-amd64.deb || \
+            tar -czf usdless-${TAG}-linux-amd64.deb.tar.gz ${PKGDIR}
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            usdless-*.tar.gz
+            usdless-*.deb

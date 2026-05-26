@@ -1,0 +1,40 @@
+# Maintainer: Mano Rajesh <anthropic@raje.sh>
+pkgname=usdless-git
+pkgver=r50.7f0e3a2
+pkgrel=1
+pkgdesc="Terminal-based USD (Universal Scene Description) viewer"
+arch=('x86_64' 'aarch64')
+url="https://github.com/manorajesh/usdless"
+license=('MIT')
+depends=('openusd' 'eigen')
+makedepends=('cmake' 'git' 'python')
+provides=('usdless')
+conflicts=('usdless')
+source=("$pkgname::git+https://github.com/manorajesh/usdless.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "$pkgname"
+    printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+    local py_ver
+    py_ver=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+
+    cmake -B build -S "$pkgname" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DPython3_VERSION="$py_ver"
+    cmake --build build -j"$(nproc)"
+}
+
+check() {
+    test -f build/usdless
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build
+    install -Dm644 "$pkgname/LICENSE" \
+        "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
