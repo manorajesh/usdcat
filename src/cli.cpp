@@ -70,13 +70,17 @@ void print_help(const char *prog) {
            R);
 
     // ── Usage ─────────────────────────────────────────────────────────────────
-    printf("%susage:%s %s%s%s [%susdFile%s] [%soptions%s]\n\n",
+    printf("%susage:%s %s%s%s [%susdFile%s] [%soptions%s]\n",
            BD, R,
            BLD, prog, R,
            BD, R,
            DM, R);
+    printf("       %scat scene.usd | %s%s%s [%soptions%s]\n\n",
+           DM,
+           BLD, prog, R,
+           DM, R);
 
-    printf("View a USD file in the terminal.\n\n");
+    printf("View a USD file in the terminal. Reads from stdin when no file is given.\n\n");
 
     // ── Positional ───────────────────────────────────────────────────────────
     printf("%spositional arguments:%s\n", BYL, R);

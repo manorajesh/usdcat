@@ -9,6 +9,8 @@
 #include <atomic>
 #include <array>
 #include <csignal>
+#include <fcntl.h>
+#include <unistd.h>
 #include <pxr/imaging/hd/engine.h>
 #include <pxr/imaging/hd/renderPass.h>
 #include <pxr/imaging/hd/task.h>
@@ -23,11 +25,85 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
 std::atomic<bool> g_running(true);
 std::atomic<bool> g_resized(false);
+
+struct TempFile {
+  std::string path;
+  TempFile() = default;
+  explicit TempFile(std::string p) : path(std::move(p)) {}
+  TempFile(const TempFile &) = delete;
+  TempFile &operator=(const TempFile &) = delete;
+  TempFile(TempFile &&o) noexcept : path(std::move(o.path)) { o.path.clear(); }
+  TempFile &operator=(TempFile &&o) noexcept {
+    if (this != &o) {
+      if (!path.empty()) unlink(path.c_str());
+      path = std::move(o.path);
+      o.path.clear();
+    }
+    return *this;
+  }
+  ~TempFile() { if (!path.empty()) unlink(path.c_str()); }
+};
+
+static const char *detect_usd_ext(const unsigned char *hdr, size_t n) {
+  if (n >= 8 && memcmp(hdr, "PXR-USDC", 8) == 0) return ".usdc";
+  if (n >= 2 && hdr[0] == 'P' && hdr[1] == 'K')  return ".usdz"; // zip magic
+  return ".usda";
+}
+
+// Reads all of stdin into a temp file and redirects STDIN_FILENO to /dev/tty
+// so the TUI can still receive keyboard input.
+static TempFile drain_stdin_to_tempfile() {
+  // Peek at the first 8 bytes to detect the format before writing to disk.
+  unsigned char hdr[8];
+  ssize_t hdr_n = read(STDIN_FILENO, hdr, sizeof(hdr));
+  if (hdr_n < 0) {
+    fprintf(stderr, "error: failed to read from stdin\n");
+    return {};
+  }
+
+  const char *ext = detect_usd_ext(hdr, (size_t)hdr_n);
+  char tmp[64];
+  snprintf(tmp, sizeof(tmp), "/tmp/usdless_XXXXXX%s", ext);
+  int fd = mkstemps(tmp, (int)strlen(ext));
+  if (fd < 0) {
+    fprintf(stderr, "error: failed to create temporary file for stdin input\n");
+    return {};
+  }
+
+  bool ok = (hdr_n == 0 || write(fd, hdr, (size_t)hdr_n) == hdr_n);
+  if (ok) {
+    char buf[65536];
+    ssize_t n;
+    while ((n = read(STDIN_FILENO, buf, sizeof(buf))) > 0) {
+      if (write(fd, buf, (size_t)n) != n) { ok = false; break; }
+    }
+  }
+  close(fd);
+
+  if (!ok) {
+    unlink(tmp);
+    fprintf(stderr, "error: failed to write stdin data to temporary file\n");
+    return {};
+  }
+
+  // Reopen stdin as the controlling terminal so keyboard input works.
+  int tty = open("/dev/tty", O_RDONLY);
+  if (tty < 0) {
+    unlink(tmp);
+    fprintf(stderr, "error: failed to open /dev/tty — cannot read keyboard input\n");
+    return {};
+  }
+  dup2(tty, STDIN_FILENO);
+  close(tty);
+
+  return TempFile{std::string(tmp)};
+}
 
 void signal_handler(int signal) {
   if (signal == SIGINT) {
@@ -180,9 +256,16 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  TempFile temp_file;
   if (args.usd_file.empty()) {
-    print_help(argv[0]);
-    return 1;
+    if (!isatty(STDIN_FILENO)) {
+      temp_file = drain_stdin_to_tempfile();
+      if (temp_file.path.empty()) return 1;
+      args.usd_file = temp_file.path;
+    } else {
+      print_help(argv[0]);
+      return 1;
+    }
   }
 
   RenderMode mode = (args.renderer == "braille") ? RenderMode::Braille
